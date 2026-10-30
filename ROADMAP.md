@@ -7,19 +7,13 @@
 | 3 | Weight analysis: install size, duplicates, bundle size (esbuild), native-now | ✅ done |
 | 4 | Replacement advisor: author notice → curated (e18e) → search candidates, with effort | ✅ done |
 | 5 | Interactive HTML report, JSON output and CI mode | ✅ done |
-| 6 | Second ecosystem: PyPI via `pyproject.toml` / `requirements*.txt` / `poetry.lock` / `uv.lock` + OSV | ⏳ next |
-
-## Milestone 6: PyPI
-
-* `parsers/pypi/`: produce the same `DependencyGraph` from `uv.lock`, `poetry.lock`, or pinned `requirements*.txt`; `pyproject.toml` for direct dependencies and groups (dev/optional).
-* `fetchers/pypi.ts`: PyPI JSON API (`/pypi/<name>/json`) for release times, yanked flags and project URLs; `Development Status :: 7 - Inactive` classifier as a deprecation signal.
-* OSV already supports the `PyPI` ecosystem; parameterise `OsvFetcher` by ecosystem.
-* Version comparison via PEP 440 rather than semver.
-* Native-now / replacement data for Python (e.g. `six`, `mock` → `unittest.mock`, `pytz` → `zoneinfo`, `toml` → `tomllib`).
+| 6 | Second ecosystem: PyPI via `pyproject.toml` / `uv.lock` / `poetry.lock` / `requirements*.txt` / `.venv` + OSV | ✅ done |
 
 ## Later
 
+* `pylock.toml` (PEP 751) and `Pipfile.lock`.
+* Python bundle/install size (wheel sizes per platform) and a larger standard-library replacement list.
 * Reachability analysis for vulnerabilities (import graph + vulnerable symbol data from OSV `ecosystem_specific.imports` where available).
 * A history mode: store each JSON report and chart libyear and score drift over time.
 * SARIF output for GitHub code scanning.
-* Bun (`bun.lock`) support.
+* Bun (`bun.lock`) and Cargo / Go modules as further ecosystems.

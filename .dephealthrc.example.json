@@ -1,12 +1,24 @@
 {
-  "failOn": ["vuln:high", "deprecated:direct", "score<30"],
+  "failOn": [
+    "vuln:high",
+    "deprecated:direct",
+    "score<30"
+  ],
   "nodeTarget": "20",
-  "browserTargets": { "chrome": "111", "edge": "111", "firefox": "114", "safari": "16.4" },
+  "pythonTarget": "3.11",
+  "browserTargets": {
+    "chrome": "111",
+    "edge": "111",
+    "firefox": "114",
+    "safari": "16.4"
+  },
   "staleYears": 2,
   "ignore": [
     {
       "package": "left-pad",
-      "checks": ["abandoned"],
+      "checks": [
+        "abandoned"
+      ],
       "reason": "Vendored copy; removal tracked in ISSUE-123",
       "until": "2026-12-31"
     },

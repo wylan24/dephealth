@@ -11,6 +11,40 @@ interface Overlay {
 
 const overlay = JSON.parse(readFileSync(new URL('../../data/replacements.json', import.meta.url), 'utf8')) as Overlay;
 
+interface PyData {
+  native: Record<string, { replacement: string; python: string; effort: Effort; note?: string }>;
+  packages: Record<string, { name: string; effort: Effort; note?: string }[]>;
+  legacy: Record<string, string>;
+}
+const pyData = JSON.parse(readFileSync(new URL('../../data/pypi-replacements.json', import.meta.url), 'utf8')) as PyData;
+
+/** `3.11` >= `3.9`, comparing dotted numbers. */
+const versionAtLeast = (have: string, need: string) => {
+  const a = have.split('.').map(Number);
+  const b = need.split('.').map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return true;
+};
+
+/** Standard-library replacement for a PyPI package, if the project's minimum Python has it. */
+export function pythonNative(name: string, pythonTarget: string): { id: string; description?: string } | undefined {
+  const n = pyData.native[name];
+  if (!n || !versionAtLeast(pythonTarget, n.python)) return undefined;
+  return { id: n.replacement, description: n.note ? `${n.note} (Python ${n.python}+)` : `Python ${n.python}+` };
+}
+
+export function pythonSuggestions(name: string): Replacement[] {
+  const out: Replacement[] = [];
+  const n = pyData.native[name];
+  if (n) out.push({ name: n.replacement, kind: 'native', source: 'curated', effort: n.effort, note: n.note ? `${n.note}; Python ${n.python}+` : `Python ${n.python}+` });
+  for (const p of pyData.packages[name] ?? []) {
+    out.push({ ...p, kind: 'package', source: 'curated', url: p.name.includes('.') ? undefined : `https://pypi.org/project/${p.name}/` });
+  }
+  return out;
+}
+
+export const pythonLegacyNote = (name: string): string | undefined => pyData.legacy[name];
+
 const PKG_NAME = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 const STOP_WORDS = new Set(['the', 'a', 'an', 'it', 'this', 'that', 'version', 'latest', 'native', 'built-in', 'builtin', 'instead', 'new', 'newer', 'v2', 'v3', 'npm', 'node', 'nodejs', 'something', 'another', 'alternative', 'alternatives', 'package', 'packages', 'module', 'modules', 'at', 'an', 'other', 'our', 'your']);
 

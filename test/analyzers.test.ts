@@ -7,7 +7,13 @@ import { analyzeWeight, nativeAlternatives } from '../src/analyzers/weight.ts';
 import { authorSuggestions, curatedSuggestions, fromDeprecation } from '../src/advisor/replacements.ts';
 import { cvss3Score, fixedIn, severityOf } from '../src/fetchers/osv.ts';
 import { parseRepository } from '../src/fetchers/npm.ts';
-import type { RegistryInfo } from '../src/types.ts';
+import { npmEcosystem, pypiEcosystem } from '../src/ecosystems.ts';
+import type { DependencyGraph, RegistryInfo } from '../src/types.ts';
+
+const graph = (kind: DependencyGraph['lockfile']['kind']) => ({ lockfile: { kind } }) as DependencyGraph;
+const NPM = npmEcosystem.hints(graph('npm'));
+const PNPM = npmEcosystem.hints(graph('pnpm'));
+const UV = pypiEcosystem.hints(graph('uv'));
 
 const NOW = new Date('2026-10-30T00:00:00Z');
 
@@ -26,7 +32,7 @@ function reg(over: Partial<RegistryInfo> = {}): RegistryInfo {
 }
 
 test('outdated: major drift, libyear, unsupported major line', () => {
-  const r = analyzeOutdated('pkg', '1.0.0', reg(), NOW);
+  const r = analyzeOutdated('pkg', '1.0.0', reg(), NPM, NOW);
   assert.equal(r.semverBehind, 'major');
   assert.equal(r.libyear, 7);
   const codes = r.findings.map((f) => f.code);
@@ -35,8 +41,8 @@ test('outdated: major drift, libyear, unsupported major line', () => {
 });
 
 test('outdated: up to date and ahead', () => {
-  assert.equal(analyzeOutdated('pkg', '3.0.0', reg(), NOW).findings.length, 0);
-  assert.equal(analyzeOutdated('pkg', '3.1.0-beta.1', reg(), NOW).semverBehind, 'ahead');
+  assert.equal(analyzeOutdated('pkg', '3.0.0', reg(), NPM, NOW).findings.length, 0);
+  assert.equal(analyzeOutdated('pkg', '3.1.0-beta.1', reg(), NPM, NOW).semverBehind, 'ahead');
 });
 
 test('abandoned: never flags on a single signal', () => {
@@ -72,10 +78,12 @@ test('insecure: one upgrade target that clears every advisory, transitive guidan
     { id: 'GHSA-1', aliases: [], summary: 'a', severity: 'high' as const, fixedIn: '1.2.0', url: '' },
     { id: 'GHSA-2', aliases: [], summary: 'b', severity: 'low' as const, fixedIn: '1.4.0', url: '' },
   ];
-  const direct = analyzeInsecure('x', true, [], vulns);
+  const direct = analyzeInsecure('x', true, [], vulns, NPM);
   assert.equal(direct[0].fix, 'Upgrade to x@1.4.0 or later (fixes both advisories)');
-  const transitive = analyzeInsecure('x', false, ['parent'], vulns);
-  assert.match(transitive[0].fix!, /Upgrade parent .* x@>=1\.4\.0.*overrides/);
+  const transitive = analyzeInsecure('x', false, ['parent'], vulns, NPM);
+  assert.match(transitive[0].fix!, /Upgrade parent .* x >= 1\.4\.0.*"overrides" entry/);
+  assert.match(analyzeInsecure('x', false, ['parent'], vulns, PNPM)[0].fix!, /pnpm\.overrides/);
+  assert.match(analyzeInsecure('x', false, ['parent'], vulns, UV)[0].fix!, /constraint-dependencies/);
   assert.match(transitive[0].message, /pulled in by parent; reachability: unknown/);
 });
 
@@ -105,9 +113,9 @@ test('weight: native-now respects runtime targets and primary-choice rule', () =
   assert.equal(nativeAlternatives('node-fetch', { node: '16.0.0' }).length, 0);
   // moment lists `Date` as an option, but it is not a like-for-like swap
   assert.equal(nativeAlternatives('moment', { node: '22.0.0' }).length, 0);
-  const f = analyzeWeight({ name: 'object-assign', dev: false, transitive: 0, targets: { node: '22.0.0' } });
+  const f = analyzeWeight({ name: 'object-assign', dev: false, transitive: 0, natives: nativeAlternatives('object-assign', { node: '22.0.0' }) });
   assert.equal(f[0].code, 'native-now');
-  const heavy = analyzeWeight({ name: 'big', dev: false, transitive: 200, unpackedSize: 30 * 1024 * 1024, bundle: { minified: 400_000, gzip: 120_000 }, targets: { node: '22.0.0' } });
+  const heavy = analyzeWeight({ name: 'big', dev: false, transitive: 200, unpackedSize: 30 * 1024 * 1024, bundle: { minified: 400_000, gzip: 120_000 }, natives: [] });
   assert.deepEqual(heavy.map((x) => x.code), ['many-deps', 'install-size', 'bundle-size']);
 });
 

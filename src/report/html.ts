@@ -136,7 +136,8 @@ const ignored = (p, f) => p.ignored && (p.ignored.checks === 'all' || p.ignored.
 const active = (p) => p.findings.filter((f) => !ignored(p, f));
 
 $('#title').textContent = R.workspaces[0]?.name ?? R.root;
-$('#meta').textContent = new Date(R.generatedAt).toLocaleString() + ' · ' + R.lockfile.kind + ' lockfile · ' + R.workspaces.length + ' workspace' + (R.workspaces.length > 1 ? 's' : '') + ' · dephealth ' + R.tool.version;
+const multi = R.ecosystems.length > 1;
+$('#meta').textContent = new Date(R.generatedAt).toLocaleString() + ' · ' + R.lockfiles.map((l) => (multi ? l.ecosystem + ': ' : '') + l.kind).join(', ') + ' · ' + R.workspaces.length + ' workspace' + (R.workspaces.length > 1 ? 's' : '') + ' · dephealth ' + R.tool.version;
 
 const s = R.summary, v = s.vulnerabilities;
 const card = (val, label, sub, color) => { const c = el('div', { class: 'card' }, el('div', { class: 'v', text: String(val) }), el('div', { class: 'l', text: label }), sub ? el('div', { class: 's', text: sub }) : null); if (color) c.firstChild.style.color = color; return c; };
@@ -152,7 +153,7 @@ for (const w of R.warnings) $('#warnings').append(el('div', { class: 'warn', tex
 
 const acts = R.actions.slice(0, 10);
 if (!acts.length) $('#actions').append(el('li', {}, el('div', { class: 't', text: 'Nothing to do — every dependency looks healthy.' })));
-for (const a of acts) $('#actions').append(el('li', {}, el('div', { class: 't' }, el('span', { class: 'tag', text: LABEL[a.category] }), a.package + ' — ' + a.title), el('div', { class: 'd', text: a.detail })));
+for (const a of acts) $('#actions').append(el('li', {}, el('div', { class: 't' }, multi ? el('span', { class: 'tag', text: a.ecosystem }) : null, el('span', { class: 'tag', text: LABEL[a.category] }), a.package + ' — ' + a.title), el('div', { class: 'd', text: a.detail })));
 
 const state = { q: '', cats: new Set(), directOnly: true, problemsOnly: true, hideDev: false, sort: 'score', dir: 1, open: new Set() };
 for (const c of CATS) {
@@ -167,7 +168,7 @@ document.querySelectorAll('th[data-k]').forEach((th) => th.onclick = () => { con
 const key = {
   name: (p) => p.name, version: (p) => p.semverBehind === 'major' ? 0 : p.semverBehind === 'minor' ? 1 : p.semverBehind === 'patch' ? 2 : 3,
   score: (p) => p.assessed ? p.score : 101, issues: (p) => -active(p).length, libyear: (p) => -(p.libyear ?? 0), vulns: (p) => -p.vulnerabilities.length,
-  kind: (p) => (p.direct ? 0 : 2) + (p.dev ? 1 : 0),
+  kind: (p) => (p.ecosystem === 'npm' ? 0 : 4) + (p.direct ? 0 : 2) + (p.dev ? 1 : 0),
 };
 
 function detail(p) {
@@ -210,7 +211,7 @@ function draw() {
       el('td', {}, ...cats.map((c) => el('span', { class: 'tag ' + worst(c), text: LABEL[c] })), p.ignored ? el('span', { class: 'tag', text: 'ignored' }) : null),
       el('td', { class: 'num', text: p.libyear != null ? String(p.libyear) : '' }),
       el('td', { class: 'num', text: p.vulnerabilities.length ? String(p.vulnerabilities.length) : '' }),
-      el('td', { class: 'meta', text: (p.direct ? 'direct' : 'transitive') + (p.dev ? ', dev' : '') }));
+      el('td', { class: 'meta', text: (multi ? p.ecosystem + ' · ' : '') + (p.direct ? 'direct' : 'transitive') + (p.dev ? ', dev' : '') }));
     const toggle = () => { state.open.has(p.id) ? state.open.delete(p.id) : state.open.add(p.id); draw(); };
     tr.onclick = toggle; tr.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
     tb.append(tr);
@@ -223,7 +224,7 @@ draw();
 if (s.duplicates.length) {
   const d = el('details', {}, el('summary', { text: s.duplicates.length + ' packages locked at more than one version' }));
   const box = el('div', { class: 'dupes' });
-  for (const x of s.duplicates) box.append(el('div', { text: x.name + ' ' + x.versions.join(', ') }));
+  for (const x of s.duplicates) box.append(el('div', { text: (multi ? x.ecosystem + ' ' : '') + x.name + ' ' + x.versions.join(', ') }));
   d.append(box); $('#dupes').append(d);
 }
 })();

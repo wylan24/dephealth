@@ -7,7 +7,7 @@ import { buildActions, score } from '../src/report/score.ts';
 import type { PackageReport, Report } from '../src/types.ts';
 
 function pkg(over: Partial<PackageReport>): PackageReport {
-  return { id: 'p@1.0.0', name: 'p', version: '1.0.0', direct: true, depTypes: ['prod'], dev: false, workspaces: ['app'], via: [], assessed: true, vulnerabilities: [], findings: [], replacements: [], score: 100, ...over };
+  return { ecosystem: 'npm', id: 'p@1.0.0', name: 'p', version: '1.0.0', direct: true, depTypes: ['prod'], dev: false, workspaces: ['app'], via: [], assessed: true, vulnerabilities: [], findings: [], replacements: [], score: 100, ...over };
 }
 
 function report(packages: PackageReport[]): Report {
@@ -16,8 +16,9 @@ function report(packages: PackageReport[]): Report {
     tool: { name: 'dephealth', version: '0.0.0' },
     generatedAt: new Date().toISOString(),
     root: '/x',
-    lockfile: { kind: 'npm' },
-    workspaces: [{ path: '.', name: 'app', direct: packages.length }],
+    ecosystems: ['npm'],
+    lockfiles: [{ ecosystem: 'npm', kind: 'npm' }],
+    workspaces: [{ ecosystem: 'npm', path: '.', name: 'app', direct: packages.length }],
     summary: { packages: packages.length, direct: packages.length, assessed: packages.length, averageScore: 50, totalLibyear: 12, byCategory: { abandoned: 0, outdated: 0, insecure: 0, weight: 0 }, vulnerabilities: { critical: 0, high: 0, moderate: 0, low: 0, unknown: 0 }, duplicates: [] },
     actions: buildActions(packages),
     packages,

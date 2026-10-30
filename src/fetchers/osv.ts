@@ -1,5 +1,5 @@
-import semver from 'semver';
-import type { Severity, Vulnerability } from '../types.ts';
+import type { Ecosystem, Severity, Vulnerability } from '../types.ts';
+import { semverScheme, type VersionScheme } from '../versions.ts';
 import { type DiskCache, fetchJson, limiter } from './http.ts';
 
 const API = 'https://api.osv.dev/v1';
@@ -58,24 +58,55 @@ export function severityOf(rec: OsvRecord): Severity {
   return 'unknown';
 }
 
+/** PyPI names are case/punctuation-insensitive (PEP 503); npm names are exact. */
+const sameName = (ecosystem: Ecosystem, a: string, b: string) =>
+  ecosystem === 'PyPI' ? a.toLowerCase().replace(/[-_.]+/g, '-') === b.toLowerCase().replace(/[-_.]+/g, '-') : a === b;
+
 /** Lowest `fixed` event of a range that contains the installed version. */
-export function fixedIn(rec: OsvRecord, name: string, version: string): string | undefined {
+export function fixedIn(rec: OsvRecord, name: string, version: string, ecosystem: Ecosystem = 'npm', scheme: VersionScheme = semverScheme): string | undefined {
+  if (!scheme.valid(version)) return undefined;
   const fixes: string[] = [];
   for (const a of rec.affected ?? []) {
-    if (a.package?.ecosystem !== 'npm' || a.package.name !== name) continue;
+    if (a.package?.ecosystem !== ecosystem || !sameName(ecosystem, a.package.name, name)) continue;
     for (const r of a.ranges ?? []) {
       if (r.type !== 'SEMVER' && r.type !== 'ECOSYSTEM') continue;
       let introduced: string | undefined;
       for (const ev of r.events) {
-        if (ev.introduced !== undefined) introduced = ev.introduced === '0' ? '0.0.0-0' : ev.introduced;
-        if (ev.fixed && introduced && semver.valid(ev.fixed) && semver.valid(introduced)) {
-          if (semver.gte(version, introduced, true) && semver.lt(version, ev.fixed, true)) fixes.push(ev.fixed);
+        if (ev.introduced !== undefined) introduced = ev.introduced === '0' ? scheme.zero : ev.introduced;
+        if (ev.fixed && introduced && scheme.valid(ev.fixed) && scheme.valid(introduced)) {
+          if (scheme.compare(version, introduced) >= 0 && scheme.compare(version, ev.fixed) < 0) fixes.push(ev.fixed);
           introduced = undefined;
         }
       }
     }
   }
-  return semver.sort(fixes)[0];
+  return fixes.sort((x, y) => scheme.compare(x, y))[0];
+}
+
+const shorten = (s: string, max = 160) => (s.length > max ? `${s.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : s);
+
+const SOURCE_RANK = (id: string) => (id.startsWith('MAL-') ? 0 : id.startsWith('GHSA-') ? 1 : id.startsWith('PYSEC-') ? 2 : 3);
+
+/**
+ * OSV returns the same issue once per database (GHSA-…, PYSEC-…, CVE aliases). Keep one record per
+ * alias group, preferring GHSA (which carries a severity label), and keep the best severity/fix seen.
+ */
+export function dedupeAliases(vulns: Vulnerability[]): Vulnerability[] {
+  const sorted = [...vulns].sort((a, b) => SOURCE_RANK(a.id) - SOURCE_RANK(b.id));
+  const kept: { v: Vulnerability; keys: Set<string> }[] = [];
+  for (const v of sorted) {
+    const keys = new Set([v.id, ...v.aliases]);
+    const twin = kept.find((k) => [...keys].some((x) => k.keys.has(x)));
+    if (!twin) {
+      kept.push({ v: { ...v }, keys });
+      continue;
+    }
+    keys.forEach((x) => twin.keys.add(x));
+    if (twin.v.severity === 'unknown') twin.v.severity = v.severity;
+    twin.v.fixedIn ??= v.fixedIn;
+    if (!twin.v.aliases.includes(v.id)) twin.v.aliases.push(v.id);
+  }
+  return kept.map((k) => k.v);
 }
 
 export class OsvFetcher {
@@ -86,13 +117,13 @@ export class OsvFetcher {
   }
 
   /** Returns `name@version` -> vulnerabilities for every package that has any. */
-  async scan(pkgs: { name: string; version: string }[]): Promise<Map<string, Vulnerability[]>> {
+  async scan(pkgs: { name: string; version: string }[], ecosystem: Ecosystem = 'npm', scheme: VersionScheme = semverScheme): Promise<Map<string, Vulnerability[]>> {
     const out = new Map<string, Vulnerability[]>();
     const idsByPkg = new Map<string, { id: string; modified: string }[]>();
     const uncached: { name: string; version: string }[] = [];
 
     for (const p of pkgs) {
-      const hit = this.cache.get<{ id: string; modified: string }[]>(`osv:q:${p.name}@${p.version}`);
+      const hit = this.cache.get<{ id: string; modified: string }[]>(`osv:q:${ecosystem}:${p.name}@${p.version}`);
       if (hit) idsByPkg.set(`${p.name}@${p.version}`, hit);
       else uncached.push(p);
     }
@@ -102,13 +133,13 @@ export class OsvFetcher {
       const { data } = await fetchJson<{ results: { vulns?: { id: string; modified: string }[] }[] }>(`${API}/querybatch`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ queries: chunk.map((p) => ({ package: { name: p.name, ecosystem: 'npm' }, version: p.version })) }),
+        body: JSON.stringify({ queries: chunk.map((p) => ({ package: { name: p.name, ecosystem }, version: p.version })) }),
       });
       data?.results.forEach((r, j) => {
         const key = `${chunk[j].name}@${chunk[j].version}`;
         const vulns = r.vulns ?? [];
         idsByPkg.set(key, vulns);
-        this.cache.set(`osv:q:${key}`, vulns);
+        this.cache.set(`osv:q:${ecosystem}:${key}`, vulns);
       });
     }
 
@@ -135,13 +166,14 @@ export class OsvFetcher {
         vulns.push({
           id: rec.id,
           aliases: rec.aliases ?? [],
-          summary: rec.summary ?? rec.details?.split('\n')[0]?.slice(0, 200) ?? rec.id,
+          summary: shorten(rec.summary ?? rec.details?.split('\n')[0] ?? rec.id),
           severity: severityOf(rec),
-          fixedIn: fixedIn(rec, name, version),
+          fixedIn: fixedIn(rec, name, version, ecosystem, scheme),
           url: `https://osv.dev/vulnerability/${rec.id}`,
         });
       }
-      if (vulns.length) out.set(key, vulns);
+      const unique = dedupeAliases(vulns);
+      if (unique.length) out.set(key, unique);
     }
     return out;
   }

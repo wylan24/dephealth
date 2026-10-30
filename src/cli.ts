@@ -8,10 +8,11 @@ import { DiskCache } from './fetchers/http.ts';
 import { evaluate, parseRules, RULE_HELP } from './report/ci.ts';
 import { renderHtml } from './report/html.ts';
 import { renderText } from './report/text.ts';
+import type { Ecosystem } from './types.ts';
 
 const VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
-const HELP = `dephealth ${VERSION} — dependency health report for npm projects
+const HELP = `dephealth ${VERSION} — dependency health report for npm and Python projects
 
 Usage: dephealth [project-dir] [options]
 
@@ -25,7 +26,8 @@ Output
 Checks
   --deep                fetch registry metadata for transitive packages too (slower)
   --bundle              measure browser bundle size with esbuild (frontend workspaces)
-  --prod                ignore devDependencies
+  --prod                ignore dev dependencies (devDependencies, dev groups, dev requirements)
+  --ecosystem <list>    npm, pypi or both, comma-separated (default: every one detected)
   --no-search           don't search npm for replacement candidates
   --config <file>       config file (default: .dephealthrc.json or "dephealth" in package.json)
 
@@ -41,6 +43,16 @@ Network
 ${RULE_HELP}
 `;
 
+function parseEcosystems(value: string | undefined): Ecosystem[] | undefined {
+  if (!value) return undefined;
+  return value.split(',').map((v) => {
+    const key = v.trim().toLowerCase();
+    if (key === 'npm' || key === 'node' || key === 'js') return 'npm' as const;
+    if (key === 'pypi' || key === 'python' || key === 'py') return 'PyPI' as const;
+    throw new Error(`Unknown ecosystem "${v}" (use npm or pypi)`);
+  });
+}
+
 async function main(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -53,6 +65,7 @@ async function main(): Promise<number> {
       deep: { type: 'boolean' },
       bundle: { type: 'boolean' },
       prod: { type: 'boolean' },
+      ecosystem: { type: 'string' },
       'no-search': { type: 'boolean' },
       config: { type: 'string' },
       ci: { type: 'boolean' },
@@ -91,6 +104,7 @@ async function main(): Promise<number> {
     deep: !!values.deep,
     bundle: !!values.bundle,
     prodOnly: !!values.prod,
+    ecosystems: parseEcosystems(values.ecosystem),
     noSearch: !!values['no-search'],
     version: VERSION,
     log,

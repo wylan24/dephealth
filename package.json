@@ -1,7 +1,7 @@
 {
   "name": "dephealth",
-  "version": "0.1.0",
-  "description": "Dependency health report: abandoned, outdated, insecure and heavier-than-needed npm packages, with replacement suggestions.",
+  "version": "0.2.0",
+  "description": "Dependency health report for npm and Python projects: insecure, abandoned, outdated and heavier-than-needed packages, with scores, fixes and replacement suggestions.",
   "type": "module",
   "bin": {
     "dephealth": "dist/cli.js"
@@ -21,15 +21,20 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [
-    "dependencies",
-    "npm",
     "audit",
-    "security",
+    "cli",
+    "dependencies",
+    "deprecated",
+    "libyear",
+    "npm",
     "osv",
     "outdated",
-    "libyear",
-    "deprecated",
-    "cli"
+    "poetry",
+    "pypi",
+    "python",
+    "requirements",
+    "security",
+    "uv"
   ],
   "license": "MIT",
   "repository": {
@@ -41,6 +46,7 @@
     "esbuild": "^0.28.2",
     "module-replacements": "^3.4.0",
     "semver": "^7.7.0",
+    "smol-toml": "^1.9.1",
     "yaml": "^2.8.0"
   },
   "devDependencies": {

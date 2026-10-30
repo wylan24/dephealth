@@ -60,7 +60,9 @@ export function analyzeAbandoned(reg: RegistryInfo, repo: RepoInfo | undefined, 
   } else if (repo?.scorecardMaintained !== undefined) {
     check(repo.scorecardMaintained > 0, 'no recent activity (Scorecard "Maintained" = 0)', `Scorecard "Maintained" ${repo.scorecardMaintained}/10`);
   }
-  check(reg.maintainers > 1, `${reg.maintainers === 0 ? 'no' : 'a single'} npm maintainer`, `${reg.maintainers} npm maintainers`);
+  if (reg.maintainers !== undefined) {
+    check(reg.maintainers > 1, `${reg.maintainers === 0 ? 'no' : 'a single'} registry maintainer`, `${reg.maintainers} registry maintainers`);
+  }
   if (repo?.openIssues !== undefined) {
     // big projects always have big backlogs; only flag a backlog that is large for the project's size
     const backlog = repo.openIssues >= 50 && repo.openIssues * 100 > (repo.stars ?? 0);

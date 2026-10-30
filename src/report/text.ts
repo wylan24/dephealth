@@ -16,7 +16,8 @@ export function renderText(r: Report, top = 10): string {
   const v = s.vulnerabilities;
   const lines = [
     '',
-    bold(`dephealth — ${r.workspaces[0]?.name ?? r.root}`) + dim(` (${s.packages} packages, ${s.direct} direct, ${r.workspaces.length} workspace${r.workspaces.length > 1 ? 's' : ''})`),
+    bold(`dephealth — ${r.workspaces[0]?.name ?? r.root}`) +
+      dim(` (${s.packages} packages, ${s.direct} direct, ${r.workspaces.length} workspace${r.workspaces.length > 1 ? 's' : ''}; ${r.lockfiles.map((l) => `${l.ecosystem}: ${l.kind}`).join(', ')})`),
     `  Average score  ${scoreColor(s.averageScore)(String(s.averageScore))}/100     Libyears ${s.totalLibyear}`,
     `  Insecure ${s.byCategory.insecure} ${dim(`(${v.critical} critical, ${v.high} high, ${v.moderate} moderate, ${v.low} low)`)}   Abandoned ${s.byCategory.abandoned}   Outdated ${s.byCategory.outdated}   Heavy ${s.byCategory.weight}`,
   ];
@@ -24,7 +25,8 @@ export function renderText(r: Report, top = 10): string {
   if (r.actions.length) {
     lines.push('', bold(`Top ${Math.min(top, r.actions.length)} actions`));
     r.actions.slice(0, top).forEach((a, i) => {
-      lines.push(`  ${String(i + 1).padStart(2)}. ${bold(a.package)} ${dim(`[${a.category}]`)} ${a.title}`);
+      const eco = r.ecosystems.length > 1 ? dim(`${a.ecosystem} `) : '';
+      lines.push(`  ${String(i + 1).padStart(2)}. ${eco}${bold(a.package)} ${dim(`[${a.category}]`)} ${a.title}`);
       lines.push(dim(`      ${a.detail}`));
     });
   } else {

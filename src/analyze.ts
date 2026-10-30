@@ -1,19 +1,16 @@
 import path from 'node:path';
-import semver from 'semver';
 import { analyzeAbandoned, lastPublish } from './analyzers/abandoned.ts';
 import { analyzeInsecure, SEVERITY_ORDER } from './analyzers/insecure.ts';
 import { analyzeOutdated } from './analyzers/outdated.ts';
-import { analyzeWeight, duplicates, measureBundle, transitiveCount, type Targets } from './analyzers/weight.ts';
-import { authorSuggestions, curatedSuggestions, legacyNote, searchCandidates } from './advisor/replacements.ts';
+import { analyzeWeight, duplicates, measureBundle, transitiveCount } from './analyzers/weight.ts';
+import { searchCandidates } from './advisor/replacements.ts';
 import { type Config, findIgnore } from './config.ts';
+import { ECOSYSTEMS, type EcosystemAdapter } from './ecosystems.ts';
 import { DiskCache, limiter } from './fetchers/http.ts';
-import { NpmFetcher } from './fetchers/npm.ts';
-import { NpmRc } from './fetchers/npmrc.ts';
 import { OsvFetcher } from './fetchers/osv.ts';
 import { RepoFetcher } from './fetchers/repo.ts';
-import { loadProject } from './parsers/index.ts';
 import { buildActions, score } from './report/score.ts';
-import type { Category, DepType, PackageReport, RegistryInfo, Report, RepoInfo, Severity, Vulnerability } from './types.ts';
+import type { Category, DependencyGraph, DepType, Ecosystem, PackageReport, RegistryInfo, Report, RepoInfo, Severity, Vulnerability } from './types.ts';
 
 export interface AnalyzeOptions {
   root: string;
@@ -28,28 +25,34 @@ export interface AnalyzeOptions {
   prodOnly: boolean;
   /** skip npm search for replacement candidates */
   noSearch: boolean;
+  /** limit to these ecosystems; default: every one detected in the project */
+  ecosystems?: Ecosystem[];
   version: string;
   log: (msg: string) => void;
 }
 
-/** Lowest Node.js major the project must support. */
-function nodeTarget(config: Config, engines: (string | undefined)[]): string {
-  if (config.nodeTarget) return config.nodeTarget;
-  const mins = engines.filter(Boolean).map((r) => semver.minVersion(r!)?.version).filter(Boolean) as string[];
-  return mins.length ? semver.sort(mins)[0] : '22.0.0';
+interface Shared {
+  opts: AnalyzeOptions;
+  osv: OsvFetcher;
+  repos: RepoFetcher;
+  cache: DiskCache;
+  warn: (msg: string) => void;
+  log: (msg: string) => void;
+  now: Date;
 }
 
-export async function analyze(opts: AnalyzeOptions): Promise<Report> {
-  const warnings: string[] = [];
-  const warn = (m: string) => {
-    if (!warnings.includes(m)) warnings.push(m);
-  };
-  const graph = loadProject(opts.root, warnings);
-  const cache = new DiskCache(opts.cacheDir);
-  const npmrc = new NpmRc(graph.root);
-  const npm = new NpmFetcher(cache);
-  const osv = new OsvFetcher(cache);
-  const repos = new RepoFetcher(cache, opts.githubToken, warn);
+interface EcosystemResult {
+  graph: DependencyGraph;
+  packages: PackageReport[];
+  registry: Map<string, RegistryInfo>;
+}
+
+/** Run every check for one ecosystem's dependency graph. */
+async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s: Shared): Promise<EcosystemResult> {
+  const { opts, osv, repos, warn, log, now } = s;
+  const hints = eco.hints(graph);
+  const reg = eco.registry(s.cache);
+  const privateReasonFor = eco.privateReason(graph.root);
 
   // ------------------------------------------------------------ who depends on what
   const directInfo = new Map<string, { types: Set<DepType>; workspaces: Set<string> }>();
@@ -77,39 +80,39 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
     }
   }
   const included = [...graph.nodes.values()].filter((n) => directInfo.has(n.id) || (via.has(n.id) && !(opts.prodOnly && n.dev)));
-  opts.log(`Found ${included.length} packages (${directInfo.size} direct) across ${graph.workspaces.length} workspace(s), lockfile: ${graph.lockfile.kind}`);
+  log(`Found ${included.length} packages (${directInfo.size} direct) across ${graph.workspaces.length} workspace(s), lockfile: ${graph.lockfile.kind}`);
 
   // ------------------------------------------------------------ fetch
   const privateReason = new Map<string, string>();
   for (const n of included) {
-    const r = npmrc.privateReason(n.name, n.resolved);
+    const r = privateReasonFor(n.name, n.resolved);
     if (r) privateReason.set(n.id, r);
   }
   const publicPkgs = included.filter((n) => !privateReason.has(n.id));
 
-  opts.log(`Querying OSV.dev for ${publicPkgs.length} package versions…`);
+  log(`Querying OSV.dev for ${publicPkgs.length} package versions…`);
   let vulns = new Map<string, Vulnerability[]>();
   try {
-    vulns = await osv.scan(publicPkgs.map((n) => ({ name: n.name, version: n.version })));
+    vulns = await osv.scan(publicPkgs.map((n) => ({ name: n.name, version: n.version })), eco.id, eco.scheme);
   } catch (err) {
-    warn(`OSV.dev query failed, security results are missing: ${(err as Error).message}`);
+    warn(`OSV.dev query failed, ${eco.id} security results are missing: ${(err as Error).message}`);
   }
 
   const wantRegistry = publicPkgs.filter((n) => opts.deep || directInfo.has(n.id));
-  opts.log(`Fetching npm registry metadata for ${wantRegistry.length} packages…`);
+  log(`Fetching ${eco.id} registry metadata for ${wantRegistry.length} packages…`);
   const registry = new Map<string, RegistryInfo>();
   const regLimit = limiter(24);
   await Promise.all(
     wantRegistry.map((n) =>
-      regLimit(() => npm.info(n.name, n.version, directInfo.has(n.id)))
+      regLimit(() => reg.info(n.name, n.version, directInfo.has(n.id)))
         .then((info) => registry.set(n.id, info))
-        .catch((err) => warn(`npm registry lookup failed for ${n.name}: ${(err as Error).message}`)),
+        .catch((err) => warn(`${eco.id} registry lookup failed for ${n.name}: ${(err as Error).message}`)),
     ),
   );
 
   const repoFor = new Map<string, RepoInfo>();
   const repoTargets = wantRegistry.filter((n) => directInfo.has(n.id) && registry.get(n.id)?.repository);
-  opts.log(`Checking ${repoTargets.length} source repositories (GitHub${opts.githubToken ? '' : ', no token'} + deps.dev)…`);
+  log(`Checking ${repoTargets.length} source repositories (GitHub${opts.githubToken ? '' : ', no token'} + deps.dev)…`);
   await Promise.all(
     repoTargets.map(async (n) => {
       const r = registry.get(n.id)!.repository!;
@@ -124,21 +127,20 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
 
   // ------------------------------------------------------------ analyze
   const wsByName = new Map(graph.workspaces.map((w) => [w.name, w]));
-  const allEngines = graph.workspaces.map((w) => w.nodeEngine);
   const anyFrontend = graph.workspaces.some((w) => w.frontend);
-  const now = new Date();
   const bundleLimit = limiter(4);
 
   const packages: PackageReport[] = await Promise.all(
     included.map(async (n) => {
       const d = directInfo.get(n.id);
       const viaList = [...(via.get(n.id) ?? [])].sort();
-      const reg = registry.get(n.id);
+      const info = registry.get(n.id);
       const repo = repoFor.get(n.id);
       const v = vulns.get(n.id) ?? [];
       const wsNames = d ? [...d.workspaces] : [];
-      const assessed = !privateReason.has(n.id) && (reg ? reg.assessed : true);
+      const assessed = !privateReason.has(n.id) && (info ? info.assessed : true);
       const report: PackageReport = {
+        ecosystem: eco.id,
         id: n.id,
         name: n.name,
         version: n.version,
@@ -148,7 +150,7 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
         workspaces: wsNames,
         via: d ? [] : viaList,
         assessed,
-        notAssessedReason: privateReason.get(n.id) ?? (reg && !reg.assessed ? reg.notAssessedReason : undefined),
+        notAssessedReason: privateReason.get(n.id) ?? (info && !info.assessed ? info.notAssessedReason : undefined),
         vulnerabilities: v,
         findings: [],
         replacements: [],
@@ -157,62 +159,95 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
       };
       if (!assessed) return report;
 
-      report.findings.push(...analyzeInsecure(n.name, !!d, viaList, v));
+      report.findings.push(...analyzeInsecure(n.name, !!d, viaList, v, hints));
 
-      if (reg?.assessed) {
-        report.registry = { maintainers: reg.maintainers, weeklyDownloads: reg.weeklyDownloads, deprecated: reg.deprecated, latestDeprecated: reg.latestDeprecated, lastPublish: lastPublish(reg) };
-        const o = analyzeOutdated(n.name, n.version, reg, now);
+      if (info?.assessed) {
+        report.registry = { maintainers: info.maintainers, weeklyDownloads: info.weeklyDownloads, deprecated: info.deprecated, latestDeprecated: info.latestDeprecated, lastPublish: lastPublish(info) };
+        const o = analyzeOutdated(n.name, n.version, info, hints, now);
         Object.assign(report, { latest: o.latest, libyear: o.libyear, semverBehind: o.semverBehind });
         // minor/patch drift on transitive packages is the parent's business, not actionable here
         report.findings.push(...o.findings.filter((f) => d || f.code === 'version-deprecated' || f.code === 'unsupported-major'));
 
         if (d) {
-          const a = analyzeAbandoned(reg, repo, v.length, opts.config.staleYears, now);
+          const a = analyzeAbandoned(info, repo, v.length, opts.config.staleYears, now);
           report.abandonment = { status: a.status, failed: a.failed, passed: a.passed };
           report.findings.push(...a.findings);
-          const legacy = legacyNote(n.name);
-          if (legacy && !reg.latestDeprecated) {
+          const legacy = eco.legacy(n.name);
+          if (legacy && !info.latestDeprecated) {
             report.findings.push({ category: 'abandoned', level: 'low', code: 'legacy', message: `Legacy project: ${legacy}`, penalty: 8 });
           }
-        } else if (reg.latestDeprecated) {
-          report.findings.push({ category: 'abandoned', level: 'low', code: 'deprecated', message: `Deprecated by its author: "${reg.latestDeprecated}" (pulled in by ${viaList.slice(0, 3).join(', ')})`, penalty: 15, fix: `Upgrade or replace ${viaList[0]}` });
+        } else if (info.latestDeprecated) {
+          report.findings.push({ category: 'abandoned', level: 'low', code: 'deprecated', message: `Deprecated by its author: "${info.latestDeprecated}" (pulled in by ${viaList.slice(0, 3).join(', ')})`, penalty: 15, fix: `Upgrade or replace ${viaList[0]}` });
         }
       }
 
       if (d) {
         const wsList = wsNames.map((w) => wsByName.get(w)!).filter(Boolean);
         const frontend = wsList.some((w) => w.frontend) && !d.types.has('dev');
-        const targets: Targets = {
-          node: nodeTarget(opts.config, wsList.length ? wsList.map((w) => w.nodeEngine) : allEngines),
-          browsers: frontend ? opts.config.browserTargets : undefined,
-        };
         const transitive = transitiveCount(graph.nodes, n.id);
         const ws0 = wsList[0];
-        const bundle = opts.bundle && frontend && anyFrontend ? await bundleLimit(() => measureBundle(n.name, path.join(graph.root, ws0?.path ?? '.'))) : undefined;
-        report.weight = { unpackedSize: reg?.unpackedSize, transitiveCount: transitive, bundle };
-        report.findings.push(...analyzeWeight({ name: n.name, dev: !d.types.has('prod') && !d.types.has('optional') && !d.types.has('peer'), unpackedSize: reg?.unpackedSize, transitive, bundle, targets }));
+        const bundle = eco.bundles && opts.bundle && frontend && anyFrontend ? await bundleLimit(() => measureBundle(n.name, path.join(graph.root, ws0?.path ?? '.'))) : undefined;
+        report.weight = { unpackedSize: info?.unpackedSize, transitiveCount: transitive, bundle };
+        report.findings.push(
+          ...analyzeWeight({
+            name: n.name,
+            dev: !d.types.has('prod') && !d.types.has('optional') && !d.types.has('peer'),
+            unpackedSize: info?.unpackedSize,
+            transitive,
+            bundle,
+            natives: eco.natives(n.name, wsList.length ? wsList : graph.workspaces, frontend, opts.config),
+          }),
+        );
       }
       return report;
     }),
   );
 
   // ------------------------------------------------------------ replacements
-  const needsAdvice = (p: PackageReport) => p.findings.some((f) => ['deprecated', 'archived', 'abandoned', 'at-risk', 'legacy', 'native-now', 'micro-utility'].includes(f.code) || (f.code === 'vuln' && f.fix?.startsWith('No fixed')));
+  const needsAdvice = (p: PackageReport) =>
+    p.findings.some((f) => ['deprecated', 'archived', 'abandoned', 'at-risk', 'legacy', 'native-now', 'micro-utility'].includes(f.code) || (f.code === 'vuln' && f.fix?.startsWith('No fixed')));
   const searchLimit = limiter(4);
   await Promise.all(
     packages.filter(needsAdvice).map(async (p) => {
-      const reg = registry.get(p.id);
-      const list = [...authorSuggestions(p.name, reg?.latestDeprecated ?? reg?.deprecated), ...curatedSuggestions(p.name)];
+      const info = registry.get(p.id);
       const seen = new Set<string>();
-      p.replacements = list.filter((r) => !seen.has(r.name) && seen.add(r.name));
+      p.replacements = eco.suggestions(p.name, info?.latestDeprecated ?? info?.deprecated).filter((r) => !seen.has(r.name) && seen.add(r.name));
       const hardProblem = p.findings.some((f) => ['deprecated', 'archived', 'abandoned'].includes(f.code));
-      if (!p.replacements.length && hardProblem && p.direct && !opts.noSearch && reg) {
-        p.replacements = await searchLimit(() => searchCandidates(p.name, reg.keywords, reg.description, (t) => npm.search(t)));
+      if (!p.replacements.length && hardProblem && p.direct && !opts.noSearch && info && reg.search) {
+        p.replacements = await searchLimit(() => searchCandidates(p.name, info.keywords, info.description, (t) => reg.search!(t)));
       }
     }),
   );
+  return { graph, packages, registry };
+}
+
+export async function analyze(opts: AnalyzeOptions): Promise<Report> {
+  const root = path.resolve(opts.root);
+  const warnings: string[] = [];
+  const warn = (m: string) => {
+    if (!warnings.includes(m)) warnings.push(m);
+  };
+  const adapters = ECOSYSTEMS.filter((e) => (!opts.ecosystems || opts.ecosystems.includes(e.id)) && e.detect(root));
+  if (!adapters.length) {
+    throw new Error(
+      opts.ecosystems
+        ? `No ${opts.ecosystems.join('/')} project found in ${root}`
+        : `No package.json, pyproject.toml or requirements*.txt found in ${root}`,
+    );
+  }
+  const cache = new DiskCache(opts.cacheDir);
+  const shared: Omit<Shared, 'log'> = { opts, osv: new OsvFetcher(cache), repos: new RepoFetcher(cache, opts.githubToken, warn), cache, warn, now: new Date() };
+
+  const results: EcosystemResult[] = [];
+  for (const eco of adapters) {
+    const log = (m: string) => opts.log(adapters.length > 1 ? `[${eco.id}] ${m}` : m);
+    const graph = eco.load(root, warnings);
+    results.push(await analyzeEcosystem(eco, graph, { ...shared, log }));
+  }
 
   // ------------------------------------------------------------ ignore list, scoring, summary
+  const now = shared.now;
+  const packages = results.flatMap((r) => r.packages);
   for (const p of packages) {
     const ig = findIgnore(opts.config, p.name, now);
     if (ig) p.ignored = { reason: ig.reason, checks: ig.checks ?? 'all' };
@@ -221,32 +256,37 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
   packages.sort((a, b) => a.score - b.score || Number(b.direct) - Number(a.direct) || a.name.localeCompare(b.name));
 
   const byCategory: Record<Category, number> = { abandoned: 0, outdated: 0, insecure: 0, weight: 0 };
-  const sevCount = Object.fromEntries(SEVERITY_ORDER.map((s) => [s, 0])) as Record<Severity, number>;
+  const sevCount = Object.fromEntries(SEVERITY_ORDER.map((sv) => [sv, 0])) as Record<Severity, number>;
   for (const p of packages) {
     const cats = new Set(p.findings.filter((f) => f.level !== 'info').map((f) => f.category));
     for (const c of cats) byCategory[c]++;
     for (const vv of p.vulnerabilities) sevCount[vv.severity]++;
   }
   const directs = packages.filter((p) => p.direct);
-  const assessed = packages.filter((p) => p.assessed);
   const scored = directs.filter((p) => p.assessed);
 
   if (cache.dir) opts.log(`Cache: ${cache.hits} hits, ${cache.misses} misses (${cache.dir})`);
   return {
     tool: { name: 'dephealth', version: opts.version },
     generatedAt: now.toISOString(),
-    root: graph.root,
-    lockfile: graph.lockfile,
-    workspaces: graph.workspaces.map((w) => ({ path: w.path, name: w.name, direct: w.direct.length })),
+    root,
+    ecosystems: results.map((r) => r.graph.ecosystem),
+    lockfiles: results.map((r) => ({ ecosystem: r.graph.ecosystem, ...r.graph.lockfile })),
+    workspaces: results.flatMap((r) => r.graph.workspaces.map((w) => ({ ecosystem: r.graph.ecosystem, path: w.path, name: w.name, direct: w.direct.length }))),
     summary: {
       packages: packages.length,
       direct: directs.length,
-      assessed: assessed.length,
-      averageScore: scored.length ? Math.round(scored.reduce((s, p) => s + p.score, 0) / scored.length) : 100,
-      totalLibyear: Math.round(directs.reduce((s, p) => s + (p.libyear ?? 0), 0) * 100) / 100,
+      assessed: packages.filter((p) => p.assessed).length,
+      averageScore: scored.length ? Math.round(scored.reduce((sum, p) => sum + p.score, 0) / scored.length) : 100,
+      totalLibyear: Math.round(directs.reduce((sum, p) => sum + (p.libyear ?? 0), 0) * 100) / 100,
       byCategory,
       vulnerabilities: sevCount,
-      duplicates: duplicates(new Map(included.map((n) => [n.id, n]))),
+      duplicates: results.flatMap((r) => {
+        const ids = new Set(r.packages.map((p) => p.id));
+        const nodes = new Map([...r.graph.nodes].filter(([id]) => ids.has(id)));
+        const eco = adapters.find((a) => a.id === r.graph.ecosystem)!;
+        return duplicates(nodes, eco.scheme).map((d) => ({ ecosystem: r.graph.ecosystem, ...d }));
+      }),
     },
     actions: buildActions(packages),
     packages,

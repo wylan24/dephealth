@@ -30,7 +30,7 @@ export function buildActions(packages: PackageReport[]): Action[] {
         (replacement ? `Replace with ${replacement.name} (${replacement.effort}${replacement.source === 'search' ? ', candidate only' : ''})` : 'Review whether it is still needed');
       const drift = category === 'outdated' ? Math.min(10, Math.round((p.libyear ?? 0) * 2)) : 0;
       const priority = LEVEL_WEIGHT[f.level] + (CODE_BONUS[f.code] ?? 0) + (p.direct ? 10 : 0) - (p.dev ? 15 : 0) + drift;
-      actions.push({ priority, package: `${p.name}@${p.version}`, category, title: fix, detail: f.message });
+      actions.push({ ecosystem: p.ecosystem, priority, package: `${p.name}@${p.version}`, category, title: fix, detail: f.message });
     }
   }
   return actions.sort((a, b) => b.priority - a.priority);

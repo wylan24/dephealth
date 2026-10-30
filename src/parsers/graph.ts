@@ -1,5 +1,6 @@
 import semver from 'semver';
 import type { PackageNode, Workspace } from '../types.ts';
+import { sortVersions, type VersionScheme } from '../versions.ts';
 
 /** Accumulates nodes from any lockfile format; merges duplicate install locations. */
 export class GraphBuilder {
@@ -20,6 +21,13 @@ export class GraphBuilder {
     if (!to || from === to) return;
     const node = this.nodes.get(from);
     if (node && !node.deps.includes(to)) node.deps.push(to);
+  }
+
+  /** Highest locked version of `name` (PEP 440 order when given a scheme; npm ranges otherwise). */
+  highest(name: string, scheme: VersionScheme): string | undefined {
+    const versions = [...(this.byName.get(name) ?? [])].map((id) => this.nodes.get(id)!.version);
+    const version = sortVersions(scheme, versions).at(-1) ?? versions[0];
+    return version === undefined ? undefined : `${name}@${version}`;
   }
 
   /** Fallback resolution: highest locked version of `name` that satisfies `range`. */

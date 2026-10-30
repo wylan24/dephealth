@@ -1,6 +1,6 @@
 # dephealth
 
-A dependency health report for npm projects. Point it at a project folder and it reads the manifests and lockfile, checks every package, and groups the problems into four categories, each with a suggested fix:
+A dependency health report for **npm** and **Python (PyPI)** projects. Point it at a project folder and it reads the manifests and lockfiles, checks every package, and groups the problems into four categories, each with a suggested fix:
 
 | Category | What it means |
 | --- | --- |
@@ -17,7 +17,7 @@ dephealth — sample-app (163 packages, 12 direct, 1 workspace)
   Insecure 16 (2 critical, 13 high, 13 moderate, 7 low)   Abandoned 6   Outdated 8   Heavy 8
 
 Top 10 actions
-   1. form-data@2.3.3 [insecure] Upgrade request to a release that pulls form-data@>=2.5.6, or add an "overrides" entry for form-data (fixes both advisories)
+   1. form-data@2.3.3 [insecure] Upgrade request to a release that pulls form-data >= 2.5.6, or add an "overrides" entry for form-data (fixes both advisories)
    2. node-fetch@2.6.0 [insecure] Upgrade to node-fetch@2.6.7 or later (fixes both advisories)
    3. lodash@4.17.15 [insecure] Upgrade to lodash@4.18.0 or later (fixes all 6 advisories)
    ...
@@ -41,7 +41,7 @@ npm ci && npm run build
 node dist/cli.js path/to/project
 ```
 
-This prints a summary with the top actions and writes `dephealth-report.html`, an interactive report with a summary, the top 10 actions, and a sortable, filterable table. Click a row to see why it scored what it did, the fixes, replacement suggestions and the raw maintenance signals.
+dephealth detects which ecosystems the folder contains (`package.json`, `pyproject.toml`, `requirements*.txt`) and checks all of them in one report. This prints a summary with the top actions and writes `dephealth-report.html`, an interactive report with a summary, the top 10 actions, and a sortable, filterable table. Click a row to see why it scored what it did, the fixes, replacement suggestions and the raw maintenance signals.
 
 | Option | |
 | --- | --- |
@@ -51,8 +51,9 @@ This prints a summary with the top actions and writes `dephealth-report.html`, a
 | `--fail-on <rules>` | e.g. `vuln:high,deprecated:direct,score<40` |
 | `--deep` | Registry metadata for transitive packages too (deprecations, outdated major lines). Slower on first run |
 | `--bundle` | Measure minified + gzipped browser bundle size with esbuild (frontend workspaces, needs `node_modules`) |
-| `--prod` | Ignore devDependencies |
-| `--no-search` | Don't search npm for replacement candidates |
+| `--prod` | Ignore dev dependencies (devDependencies, dev dependency groups, dev requirement files) |
+| `--ecosystem <list>` | `npm`, `pypi` or `npm,pypi` (default: every one detected) |
+| `--no-search` | Don't search npm for replacement candidates (PyPI has no search API) |
 | `--github-token <t>` | Defaults to `$GITHUB_TOKEN` / `$GH_TOKEN` |
 | `--no-cache` / `--cache-dir <dir>` | API responses are cached on disk for 24 hours |
 
@@ -64,23 +65,24 @@ Optional but recommended. Without one GitHub allows about 60 requests per hour, 
 
 ### Insecure
 
-All `name@version` pairs in the lockfile go to OSV.dev's batch API. Each advisory reports severity (GHSA label, else computed from the CVSS 3.x vector), the fixed-in version, and whether the package is a direct dependency or which direct dependencies pull it in. The fix is a single version that clears *every* advisory on that package. For transitive packages it's "upgrade the parent, or add an `overrides` entry". Malicious-package records (`MAL-*`) are always critical.
+All `name@version` pairs in the lockfile go to OSV.dev's batch API. Each advisory reports severity (GHSA label, else computed from the CVSS 3.x vector), the fixed-in version, and whether the package is a direct dependency or which direct dependencies pull it in. The fix is a single version that clears *every* advisory on that package. For transitive packages it's "upgrade the parent, or force the version", phrased for your tool: npm `overrides`, `pnpm.overrides`, yarn `resolutions`, uv `constraint-dependencies`, or a pin in your requirements. Advisories that appear under several ids (GHSA, PYSEC, CVE) are merged into one. Malicious-package records (`MAL-*`) are always critical.
 
 v1 doesn't do reachability analysis (whether your code actually calls the vulnerable path). Every finding says `reachability: unknown`.
 
 ### Abandoned
 
-Signals: author deprecation, archived repository, time since last publish, commits in the last 12 months, number of npm maintainers, an open-issue backlog that's large *for the project's size*, Scorecard's "Maintained" check, and whether it links a source repo at all.
+Signals: author deprecation (npm `deprecated`; on PyPI the `Development Status :: 7 - Inactive` classifier), archived repository, time since last publish, commits in the last 12 months, number of npm maintainers (PyPI doesn't publish this), an open-issue backlog that's large *for the project's size*, Scorecard's "Maintained" check, and whether it links a source repo at all.
 
 **It never flags on a single signal.** Deprecation and an archived repo are the only hard signals. Otherwise a package needs to fail three signals to be called *abandoned* (two makes it *at risk*). A "finished" utility with more than 1M weekly downloads and no known vulnerabilities needs four, because a tiny package nobody has needed to touch for years is stable, not abandoned.
 
 ### Outdated
 
-Installed version (from the lockfile) against `latest`: patch, minor or major versions behind, and **libyears** (how much older the installed release is than the latest one), so drift can be tracked over time. A major line that is behind and has had no release for over a year is flagged as no longer receiving fixes. Minor and patch drift on transitive packages is left out because you can't act on it directly.
+Installed version (from the lockfile) against `latest`: patch, minor or major versions behind, and **libyears** (how much older the installed release is than the latest one), so drift can be tracked over time. A major line that is behind and has had no release for over a year is flagged as no longer receiving fixes. Minor and patch drift on transitive packages is left out because you can't act on it directly. Python versions are compared with PEP 440 rules, and CalVer packages (`certifi 2020.12.5 → 2026.10.23`) count as updates, not major jumps. A yanked PyPI release is reported like a deprecated npm version.
 
 ### Heavier than needed
 
 * **Native now**: built-ins that cover the package for *your* targets, from the [e18e module-replacements](https://github.com/e18e/module-replacements) data and its engine-version metadata. The Node target comes from `engines.node` (default 22). Frontend workspaces also check browser targets. So `node-fetch` → `fetch` is flagged on Node 18+ but not on Node 16.
+* **Python**: standard-library replacements for your minimum Python (from `requires-python`, default 3.10), e.g. `mock` → `unittest.mock`, `pytz` → `zoneinfo` (3.9+), `toml` → `tomllib` (3.11+), `six` → Python 3 built-ins. The list is in [`data/pypi-replacements.json`](data/pypi-replacements.json).
 * **Micro-utilities** that are one line of code (`is-number` → `typeof x === "number"`).
 * Install size (unpacked), transitive package count, and versions duplicated in the lockfile.
 * Bundle size with `--bundle`, computed locally with esbuild rather than a rate-limited service.
@@ -90,8 +92,8 @@ Installed version (from the lockfile) against `latest`: patch, minor or major ve
 Pulled from three places, in order of trust:
 
 1. **The author**: "use X instead" / "moved to X" in the deprecation message.
-2. **Curated**: the e18e `module-replacements` dataset, plus a small overlay in [`data/replacements.json`](data/replacements.json) with effort ratings and packages e18e doesn't cover.
-3. **Search**: a fallback only for abandoned direct dependencies with no other suggestion. It shows similar npm packages ranked by npm's own score, labelled **"candidate, not a recommendation"**.
+2. **Curated**: for npm, the e18e `module-replacements` dataset plus a small overlay in [`data/replacements.json`](data/replacements.json) with effort ratings and packages e18e doesn't cover. For Python, [`data/pypi-replacements.json`](data/pypi-replacements.json) (e.g. `nose` → `pytest`, `pycrypto` → `pycryptodome`).
+3. **Search** (npm only): a fallback only for abandoned direct dependencies with no other suggestion. It shows similar npm packages ranked by npm's own score, labelled **"candidate, not a recommendation"**.
 
 Each suggestion has an effort level: **drop-in**, **small API changes**, or **rewrite**.
 
@@ -139,12 +141,13 @@ jobs:
 
 ## Configuration
 
-`.dephealthrc.json` in the project root (or a `"dephealth"` key in `package.json`). See [`.dephealthrc.example.json`](.dephealthrc.example.json).
+`.dephealthrc.json` in the project root, a `"dephealth"` key in `package.json`, or `[tool.dephealth]` in `pyproject.toml` (kebab-case keys such as `fail-on` and `python-target` work there). See [`.dephealthrc.example.json`](.dephealthrc.example.json).
 
 ```json
 {
   "failOn": ["vuln:high", "deprecated:direct"],
   "nodeTarget": "20",
+  "pythonTarget": "3.11",
   "ignore": [
     { "package": "left-pad", "checks": ["abandoned"], "reason": "Vendored; replacing in Q3", "until": "2026-12-31" },
     { "package": "@internal/*", "reason": "Internal packages, reviewed separately" }
@@ -156,24 +159,27 @@ Every ignore entry **must** say why. The reason is shown in the report next to t
 
 ## Project layouts
 
-* **Lockfiles**: `package-lock.json` / `npm-shrinkwrap.json` (v1–v3), `pnpm-lock.yaml` (v5–v9), `yarn.lock` (classic and Berry). Without a lockfile only the direct dependencies installed in `node_modules` are checked.
-* **Monorepos**: npm/yarn `workspaces` and `pnpm-workspace.yaml` are expanded. Each workspace's dependencies are resolved separately, and workspace packages depending on each other are treated as internal.
-* **Private registries**: `.npmrc` is respected. Packages from a scoped private registry, git or local paths, and anything the public registry 404s are shown as **not assessed** rather than failing the run. A non-public *default* registry is treated as a mirror of npm.
+* **npm lockfiles**: `package-lock.json` / `npm-shrinkwrap.json` (v1–v3), `pnpm-lock.yaml` (v5–v9), `yarn.lock` (classic and Berry). Without a lockfile only the direct dependencies installed in `node_modules` are checked.
+* **Python**: direct dependencies come from `pyproject.toml` (`[project]` dependencies and optional-dependencies, PEP 735 `[dependency-groups]`, `[tool.uv] dev-dependencies`, Poetry's `[tool.poetry.*dependencies]` and groups). Resolved versions come from, in order: `uv.lock`, `poetry.lock`, pinned `requirements*.txt` / `requirements/*.txt`, or an installed `.venv`. pip-compile/uv `# via` annotations supply the dependency tree and tell direct requirements from transitive ones; without them every pinned line is treated as direct. Groups named like dev/test/lint/docs, and files like `requirements-dev.txt`, count as dev.
+* **Monorepos**: npm/yarn `workspaces`, `pnpm-workspace.yaml` and uv `[tool.uv.workspace]` members are expanded. Each workspace's dependencies are resolved separately, and workspace packages depending on each other are treated as internal.
+* **Private registries**: `.npmrc` is respected. Packages from a scoped private registry, git or local paths, and anything the public registry 404s are shown as **not assessed** rather than failing the run. A non-public *default* registry is treated as a mirror of npm. Python packages installed from git or a local path, and anything PyPI doesn't know, are also **not assessed**.
 
 ## Architecture
 
 ```
 src/
-  parsers/     package.json + package-lock / pnpm-lock / yarn.lock → one dependency graph
-  fetchers/    npm registry, OSV, GitHub, deps.dev — disk-cached (24h), rate-limited, retrying
+  parsers/     npm: package.json + package-lock / pnpm-lock / yarn.lock
+               PyPI: pyproject.toml + uv.lock / poetry.lock / requirements / .venv
+  fetchers/    npm registry, PyPI, OSV, GitHub, deps.dev — disk-cached (24h), rate-limited, retrying
   analyzers/   abandoned, outdated, insecure, weight
   advisor/     replacement lookup + effort rating
   report/      scoring, actions, HTML / JSON / terminal renderers, CI rules
+  ecosystems.ts  per-ecosystem adapter: parser, registry, version scheme (semver / PEP 440), fix wording
   analyze.ts   orchestration
   cli.ts
 ```
 
-Analyzers are pure functions over a `DependencyGraph` and fetched metadata, so another ecosystem only needs a parser and its fetchers. See [ROADMAP.md](ROADMAP.md).
+Analyzers are pure functions over a `DependencyGraph` and fetched metadata. Adding an ecosystem means writing an adapter in `ecosystems.ts`: a parser, a registry fetcher and a version scheme. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 

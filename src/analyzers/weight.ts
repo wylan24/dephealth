@@ -2,6 +2,7 @@ import { gzipSync } from 'node:zlib';
 import { all as replacements, nativeReplacements, type ModuleReplacement } from 'module-replacements';
 import semver from 'semver';
 import type { Finding, PackageNode } from '../types.ts';
+import { sortVersions, type VersionScheme } from '../versions.ts';
 
 const MB = 1024 * 1024;
 
@@ -21,12 +22,12 @@ export function transitiveCount(nodes: Map<string, PackageNode>, id: string): nu
 }
 
 /** Package names locked at more than one version. */
-export function duplicates(nodes: Map<string, PackageNode>): { name: string; versions: string[] }[] {
+export function duplicates(nodes: Map<string, PackageNode>, scheme: VersionScheme): { name: string; versions: string[] }[] {
   const byName = new Map<string, string[]>();
   for (const n of nodes.values()) byName.set(n.name, [...(byName.get(n.name) ?? []), n.version]);
   return [...byName]
     .filter(([, v]) => v.length > 1)
-    .map(([name, versions]) => ({ name, versions: semver.sort(versions.filter((v) => semver.valid(v))).concat(versions.filter((v) => !semver.valid(v))) }))
+    .map(([name, versions]) => ({ name, versions: sortVersions(scheme, versions).concat(versions.filter((v) => !scheme.valid(v))) }))
     .sort((a, b) => b.versions.length - a.versions.length || a.name.localeCompare(b.name));
 }
 
@@ -77,13 +78,14 @@ export interface WeightInput {
   unpackedSize?: number;
   transitive: number;
   bundle?: { minified: number; gzip: number };
-  targets: Targets;
+  /** built-ins / snippets that cover this package for the project's targets */
+  natives: NativeMatch[];
 }
 
 export function analyzeWeight(w: WeightInput): Finding[] {
   const findings: Finding[] = [];
   const scale = w.dev ? 0.5 : 1; // dev tooling weight matters less than what ships
-  const natives = nativeAlternatives(w.name, w.targets);
+  const natives = w.natives;
   const native = natives.find((n) => n.kind === 'native');
   const snippet = natives.find((n) => n.kind === 'snippet');
   if (native) {

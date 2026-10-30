@@ -1,0 +1,245 @@
+{
+  "$comment": "Python counterpart of the e18e data. `native` entries name a standard-library replacement and the Python version that provides it; `packages` entries suggest maintained alternatives. `effort` is drop-in | small API changes | rewrite.",
+  "native": {
+    "six": {
+      "replacement": "Python 3 built-ins",
+      "python": "3.0",
+      "effort": "small API changes",
+      "note": "six only bridges Python 2 and 3"
+    },
+    "future": {
+      "replacement": "Python 3 built-ins",
+      "python": "3.0",
+      "effort": "small API changes"
+    },
+    "mock": {
+      "replacement": "unittest.mock",
+      "python": "3.3",
+      "effort": "drop-in"
+    },
+    "pytz": {
+      "replacement": "zoneinfo",
+      "python": "3.9",
+      "effort": "small API changes",
+      "note": "add tzdata on Windows"
+    },
+    "backports-zoneinfo": {
+      "replacement": "zoneinfo",
+      "python": "3.9",
+      "effort": "drop-in"
+    },
+    "toml": {
+      "replacement": "tomllib",
+      "python": "3.11",
+      "effort": "drop-in",
+      "note": "read-only; use tomli-w to write"
+    },
+    "tomli": {
+      "replacement": "tomllib",
+      "python": "3.11",
+      "effort": "drop-in"
+    },
+    "importlib-metadata": {
+      "replacement": "importlib.metadata",
+      "python": "3.10",
+      "effort": "drop-in"
+    },
+    "importlib-resources": {
+      "replacement": "importlib.resources",
+      "python": "3.11",
+      "effort": "drop-in"
+    },
+    "dataclasses": {
+      "replacement": "dataclasses (stdlib)",
+      "python": "3.7",
+      "effort": "drop-in"
+    },
+    "typing": {
+      "replacement": "typing (stdlib)",
+      "python": "3.5",
+      "effort": "drop-in"
+    },
+    "enum34": {
+      "replacement": "enum",
+      "python": "3.4",
+      "effort": "drop-in"
+    },
+    "pathlib2": {
+      "replacement": "pathlib",
+      "python": "3.4",
+      "effort": "drop-in"
+    },
+    "futures": {
+      "replacement": "concurrent.futures",
+      "python": "3.2",
+      "effort": "drop-in"
+    },
+    "contextlib2": {
+      "replacement": "contextlib",
+      "python": "3.10",
+      "effort": "drop-in"
+    },
+    "funcsigs": {
+      "replacement": "inspect.signature",
+      "python": "3.3",
+      "effort": "drop-in"
+    },
+    "ipaddress": {
+      "replacement": "ipaddress (stdlib)",
+      "python": "3.3",
+      "effort": "drop-in"
+    },
+    "singledispatch": {
+      "replacement": "functools.singledispatch",
+      "python": "3.4",
+      "effort": "drop-in"
+    },
+    "configparser": {
+      "replacement": "configparser (stdlib)",
+      "python": "3.0",
+      "effort": "drop-in"
+    },
+    "subprocess32": {
+      "replacement": "subprocess",
+      "python": "3.3",
+      "effort": "drop-in"
+    },
+    "unittest2": {
+      "replacement": "unittest",
+      "python": "3.0",
+      "effort": "drop-in"
+    },
+    "argparse": {
+      "replacement": "argparse (stdlib)",
+      "python": "3.2",
+      "effort": "drop-in"
+    },
+    "simplejson": {
+      "replacement": "json",
+      "python": "3.0",
+      "effort": "drop-in",
+      "note": "unless you rely on Decimal or speed differences"
+    },
+    "asyncio": {
+      "replacement": "asyncio (stdlib)",
+      "python": "3.4",
+      "effort": "drop-in",
+      "note": "the PyPI package is an obsolete 2014 backport"
+    },
+    "exceptiongroup": {
+      "replacement": "ExceptionGroup",
+      "python": "3.11",
+      "effort": "drop-in"
+    },
+    "async-timeout": {
+      "replacement": "asyncio.timeout",
+      "python": "3.11",
+      "effort": "small API changes"
+    },
+    "taskgroup": {
+      "replacement": "asyncio.TaskGroup",
+      "python": "3.11",
+      "effort": "drop-in"
+    },
+    "cached-property": {
+      "replacement": "functools.cached_property",
+      "python": "3.8",
+      "effort": "drop-in"
+    },
+    "backports-functools-lru-cache": {
+      "replacement": "functools.lru_cache",
+      "python": "3.2",
+      "effort": "drop-in"
+    },
+    "graphlib-backport": {
+      "replacement": "graphlib",
+      "python": "3.9",
+      "effort": "drop-in"
+    }
+  },
+  "packages": {
+    "nose": [
+      {
+        "name": "pytest",
+        "effort": "small API changes",
+        "note": "pytest runs most nose-style tests unchanged"
+      }
+    ],
+    "nose2": [
+      {
+        "name": "pytest",
+        "effort": "small API changes"
+      }
+    ],
+    "pycrypto": [
+      {
+        "name": "pycryptodome",
+        "effort": "drop-in",
+        "note": "unmaintained since 2013 with known CVEs"
+      }
+    ],
+    "python-jose": [
+      {
+        "name": "pyjwt",
+        "effort": "small API changes"
+      }
+    ],
+    "pkg-resources": [
+      {
+        "name": "importlib.metadata",
+        "effort": "small API changes"
+      }
+    ],
+    "fuzzywuzzy": [
+      {
+        "name": "rapidfuzz",
+        "effort": "drop-in"
+      }
+    ],
+    "pyopenssl": [
+      {
+        "name": "cryptography",
+        "effort": "small API changes",
+        "note": "pyOpenSSL's maintainers recommend using cryptography directly"
+      }
+    ],
+    "retrying": [
+      {
+        "name": "tenacity",
+        "effort": "small API changes"
+      }
+    ],
+    "sklearn": [
+      {
+        "name": "scikit-learn",
+        "effort": "drop-in",
+        "note": "`sklearn` is a deprecated placeholder"
+      }
+    ],
+    "bs4": [
+      {
+        "name": "beautifulsoup4",
+        "effort": "drop-in",
+        "note": "`bs4` is a dummy package"
+      }
+    ],
+    "pep8": [
+      {
+        "name": "pycodestyle",
+        "effort": "drop-in"
+      }
+    ],
+    "aioredis": [
+      {
+        "name": "redis",
+        "effort": "small API changes",
+        "note": "merged into redis-py as redis.asyncio"
+      }
+    ]
+  },
+  "legacy": {
+    "nose": "nose has been unmaintained since 2015 and doesn't support Python 3.10+",
+    "pycrypto": "pycrypto has been unmaintained since 2013",
+    "aioredis": "aioredis was merged into redis-py 4.2"
+  }
+}
