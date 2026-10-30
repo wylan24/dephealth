@@ -33,7 +33,7 @@ export interface EcosystemAdapter {
 }
 
 /** Lowest Node.js version the project must support. */
-function nodeTarget(config: Config, workspaces: Workspace[]): string {
+export function nodeTarget(config: Config, workspaces: Workspace[]): string {
   if (config.nodeTarget) return config.nodeTarget;
   const mins = workspaces.map((w) => w.nodeEngine && semver.minVersion(w.nodeEngine)?.version).filter(Boolean) as string[];
   return mins.length ? semver.sort(mins)[0] : '22.0.0';

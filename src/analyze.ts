@@ -5,7 +5,7 @@ import { analyzeOutdated } from './analyzers/outdated.ts';
 import { analyzeWeight, duplicates, measureBundle, transitiveCount } from './analyzers/weight.ts';
 import { searchCandidates } from './advisor/replacements.ts';
 import { type Config, findIgnore } from './config.ts';
-import { ECOSYSTEMS, type EcosystemAdapter } from './ecosystems.ts';
+import { ECOSYSTEMS, nodeTarget, type EcosystemAdapter } from './ecosystems.ts';
 import { DiskCache, limiter } from './fetchers/http.ts';
 import { OsvFetcher } from './fetchers/osv.ts';
 import { RepoFetcher } from './fetchers/repo.ts';
@@ -166,8 +166,14 @@ async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s
         report.registry = { maintainers: info.maintainers, weeklyDownloads: info.weeklyDownloads, deprecated: info.deprecated, latestDeprecated: info.latestDeprecated, lastPublish: lastPublish(info) };
         const o = analyzeOutdated(n.name, n.version, info, hints, now);
         Object.assign(report, { latest: o.latest, libyear: o.libyear, semverBehind: o.semverBehind });
+        // @types/node majors track Node.js majors: matching the oldest Node you support is deliberate
+        const typesForTarget =
+          eco.id === 'npm' && n.name === '@types/node' && eco.scheme.valid(n.version) &&
+          eco.scheme.major(n.version) === Number(nodeTarget(opts.config, graph.workspaces).split('.')[0]);
         // minor/patch drift on transitive packages is the parent's business, not actionable here
-        report.findings.push(...o.findings.filter((f) => d || f.code === 'version-deprecated' || f.code === 'unsupported-major'));
+        report.findings.push(
+          ...o.findings.filter((f) => (d || f.code === 'version-deprecated' || f.code === 'unsupported-major') && !(typesForTarget && (f.code === 'major-behind' || f.code === 'unsupported-major'))),
+        );
 
         if (d) {
           const a = analyzeAbandoned(info, repo, v.length, opts.config.staleYears, now);

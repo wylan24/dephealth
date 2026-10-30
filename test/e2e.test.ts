@@ -16,7 +16,7 @@ import { mockFetch } from './mock-fetch.ts';
 function project(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'dephealth-e2e-'));
   const files: Record<string, unknown> = {
-    'package.json': { name: 'shop', dependencies: { 'left-pad': '^1.3.0', vulnlib: '^1.0.0', healthy: '^3.0.0' }, devDependencies: { 'node-fetch': '^2.6.0' }, engines: { node: '>=20' } },
+    'package.json': { name: 'shop', dependencies: { 'left-pad': '^1.3.0', vulnlib: '^1.0.0', healthy: '^3.0.0' }, devDependencies: { 'node-fetch': '^2.6.0', '@types/node': '^20.0.0' }, engines: { node: '>=20' } },
     'package-lock.json': {
       lockfileVersion: 3,
       packages: {
@@ -26,6 +26,7 @@ function project(): string {
         'node_modules/deep-dep': { version: '0.1.0' },
         'node_modules/healthy': { version: '3.1.0' },
         'node_modules/node-fetch': { version: '2.6.0', dev: true },
+        'node_modules/@types/node': { version: '20.19.0', dev: true },
       },
     },
     'requirements.txt': 'mock==4.0.3\n',
@@ -42,6 +43,7 @@ const packuments: Record<string, unknown> = {
   'left-pad': { 'dist-tags': { latest: '1.3.0' }, time: { '1.3.0': t(2018) }, versions: { '1.3.0': { deprecated: 'use String.prototype.padStart()' } }, maintainers: [{}], repository: 'github:stevemao/left-pad' },
   vulnlib: { 'dist-tags': { latest: '1.2.0' }, time: { '1.0.0': t(2024), '1.2.0': t(2026) }, versions: { '1.0.0': {}, '1.2.0': {} }, maintainers: [{}, {}], repository: 'github:acme/vulnlib' },
   healthy: { 'dist-tags': { latest: '3.1.0' }, time: { '3.1.0': '2026-09-01T00:00:00Z' }, versions: { '3.1.0': {} }, maintainers: [{}, {}], repository: 'github:acme/healthy' },
+  '@types/node': { 'dist-tags': { latest: '26.6.6' }, time: { '20.19.0': t(2026), '26.6.6': t(2026) }, versions: { '20.19.0': {}, '26.6.6': {} }, maintainers: [{}, {}], repository: 'github:DefinitelyTyped/DefinitelyTyped' },
   'node-fetch': { 'dist-tags': { latest: '3.3.2' }, time: { '2.6.0': t(2019), '3.3.2': t(2023) }, versions: { '2.6.0': {}, '3.3.2': {} }, maintainers: [{}, {}], repository: 'github:node-fetch/node-fetch' },
 };
 
@@ -75,8 +77,8 @@ const pkg = (id: string) => report.packages.find((p) => p.id === id)!;
 test('e2e: both ecosystems detected and the graph is right', () => {
   assert.deepEqual(report.ecosystems, ['npm', 'PyPI']);
   assert.deepEqual(report.lockfiles.map((l) => l.kind), ['npm', 'requirements']);
-  assert.equal(report.summary.packages, 6);
-  assert.equal(report.summary.direct, 5);
+  assert.equal(report.summary.packages, 7);
+  assert.equal(report.summary.direct, 6);
   assert.deepEqual(pkg('deep-dep@0.1.0').via, ['vulnlib']);
   assert.equal(pkg('node-fetch@2.6.0').dev, true);
   assert.deepEqual(report.warnings, []);
@@ -92,6 +94,8 @@ test('e2e: insecure, abandoned, outdated and weight findings', () => {
   assert.deepEqual(codes('node-fetch@2.6.0'), ['major-behind', 'native-now', 'unsupported-major']);
   assert.deepEqual(codes('mock@4.0.3'), ['major-behind', 'native-now', 'unsupported-major']);
   assert.equal(pkg('healthy@3.1.0').score, 100);
+  // @types/node pinned to the oldest supported Node major (engines >=20) is deliberate, not outdated
+  assert.deepEqual(codes('@types/node@20.19.0'), []);
 });
 
 test('e2e: actions ranked, CI rules evaluated, HTML renders', () => {
