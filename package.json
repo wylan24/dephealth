@@ -1,14 +1,16 @@
 {
   "name": "dephealth",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Dependency health report for npm and Python projects: insecure, abandoned, outdated and heavier-than-needed packages, with scores, fixes and replacement suggestions.",
   "type": "module",
   "bin": {
     "dephealth": "dist/cli.js"
   },
   "files": [
+    "action.yml",
+    "data",
     "dist",
-    "data"
+    "src"
   ],
   "engines": {
     "node": ">=22.18"

@@ -16,6 +16,7 @@ export interface AnalyzeOptions {
   root: string;
   config: Config;
   githubToken?: string;
+  gitlabToken?: string;
   cacheDir: string | null;
   /** fetch registry metadata (outdated/abandoned/deprecated) for transitive packages too */
   deep: boolean;
@@ -112,12 +113,12 @@ async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s
 
   const repoFor = new Map<string, RepoInfo>();
   const repoTargets = wantRegistry.filter((n) => directInfo.has(n.id) && registry.get(n.id)?.repository);
-  log(`Checking ${repoTargets.length} source repositories (GitHub${opts.githubToken ? '' : ', no token'} + deps.dev)…`);
+  log(`Checking ${repoTargets.length} source repositories (GitHub${opts.githubToken ? '' : ', no token'}, GitLab, deps.dev)…`);
   await Promise.all(
     repoTargets.map(async (n) => {
       const r = registry.get(n.id)!.repository!;
       try {
-        repoFor.set(n.id, await repos.info(r.owner, r.repo));
+        repoFor.set(n.id, await repos.info(r));
       } catch (err) {
         warn(`Repository lookup failed for ${r.url}: ${(err as Error).message}`);
       }
@@ -236,7 +237,7 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
     );
   }
   const cache = new DiskCache(opts.cacheDir);
-  const shared: Omit<Shared, 'log'> = { opts, osv: new OsvFetcher(cache), repos: new RepoFetcher(cache, opts.githubToken, warn), cache, warn, now: new Date() };
+  const shared: Omit<Shared, 'log'> = { opts, osv: new OsvFetcher(cache), repos: new RepoFetcher(cache, opts.githubToken, warn, opts.gitlabToken), cache, warn, now: new Date() };
 
   const results: EcosystemResult[] = [];
   for (const eco of adapters) {

@@ -35,7 +35,7 @@ test('npm: packument is trimmed to the fields analyzers use', async () => {
   assert.equal(info.latestDeprecated, undefined);
   assert.equal(info.maintainers, 2);
   assert.equal(info.unpackedSize, 1234);
-  assert.deepEqual(info.repository, { owner: 'owner', repo: 'pkg', url: 'https://github.com/owner/pkg' });
+  assert.deepEqual(info.repository, { host: 'github', owner: 'owner', repo: 'pkg', url: 'https://github.com/owner/pkg' });
   assert.deepEqual(info.versions, ['1.0.0', '2.0.0']);
 });
 
@@ -148,7 +148,7 @@ test('repo: deps.dev + GitHub combined, token sent, commits counted', async () =
     ['https://api.github.com/repos/o/r', () => ({ archived: false, pushed_at: '2026-10-01T00:00:00Z', open_issues_count: 9, stargazers_count: 400 })],
   ]);
   restore = m.restore;
-  const info = await new RepoFetcher(new DiskCache(null), 'tok', () => {}).info('o', 'r');
+  const info = await new RepoFetcher(new DiskCache(null), 'tok', () => {}).info({ host: 'github', owner: 'o', repo: 'r', url: '' });
   assert.deepEqual(info, { source: ['deps.dev', 'github'], openIssues: 3, stars: 500, scorecard: 6.5, scorecardMaintained: 10, archived: false, pushedAt: '2026-10-01T00:00:00Z', commitsLastYear: 3 });
   assert.equal(m.calls.find((c) => c.url.startsWith('https://api.github.com'))!.headers.authorization, 'Bearer tok');
 });
@@ -161,9 +161,24 @@ test('repo: GitHub rate limit warns once and falls back to deps.dev', async () =
   ]);
   restore = m.restore;
   const repos = new RepoFetcher(new DiskCache(null), undefined, (w) => warnings.push(w));
-  const [a, b] = await Promise.all([repos.info('o', 'a'), repos.info('o', 'b')]);
+  const [a, b] = await Promise.all([repos.info({ host: 'github', owner: 'o', repo: 'a', url: '' }), repos.info({ host: 'github', owner: 'o', repo: 'b', url: '' })]);
   assert.deepEqual(a.source, ['deps.dev']);
   assert.deepEqual(b.source, ['deps.dev']);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /60 requests\/hour without a token/);
+});
+
+test('repo: GitLab projects (nested groups) use the GitLab API and deps.dev', async () => {
+  const m = mockFetch([
+    ['https://api.deps.dev/v3/projects/gitlab.com/group/sub/proj', () => ({ starsCount: 120, scorecard: { overallScore: 5 } })],
+    ['https://gitlab.com/api/v4/projects/group/sub/proj/repository/commits', () => [{}, {}]],
+    ['https://gitlab.com/api/v4/projects/group/sub/proj', () => ({ archived: true, last_activity_at: '2026-01-02T00:00:00Z', star_count: 100, open_issues_count: 4 })],
+  ]);
+  restore = m.restore;
+  const info = await new RepoFetcher(new DiskCache(null), 'gh-token', () => {}, 'gl-token').info({ host: 'gitlab', owner: 'group/sub', repo: 'proj', url: '' });
+  assert.deepEqual(info, { source: ['deps.dev', 'gitlab'], stars: 120, openIssues: 4, scorecard: 5, archived: true, pushedAt: '2026-01-02T00:00:00Z', commitsLastYear: 2 });
+  const gl = m.calls.find((c) => c.url.startsWith('https://gitlab.com'))!;
+  assert.equal(gl.headers['private-token'], 'gl-token');
+  assert.equal(gl.headers.authorization, undefined); // the GitHub token never goes to GitLab
+  assert.equal(m.count('https://api.github.com'), 0);
 });

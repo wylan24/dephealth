@@ -36,8 +36,8 @@ const INACTIVE = 'Development Status :: 7 - Inactive';
 /** First URL that looks like the source repository, falling back to the homepage. */
 function repoUrl(info: PypiProject['info']): string | undefined {
   const urls = Object.entries(info.project_urls ?? {});
-  const pick = urls.find(([k, v]) => /source|repo|code|github/i.test(k) && /github\.com/i.test(v)) ?? urls.find(([, v]) => /github\.com/i.test(v));
-  return pick?.[1] ?? (info.home_page && /github\.com/i.test(info.home_page) ? info.home_page : undefined);
+  const pick = urls.find(([k, v]) => /source|repo|code|github/i.test(k) && /(github|gitlab)\.com/i.test(v)) ?? urls.find(([, v]) => /(github|gitlab)\.com/i.test(v));
+  return pick?.[1] ?? (info.home_page && /(github|gitlab)\.com/i.test(info.home_page) ? info.home_page : undefined);
 }
 
 export class PypiFetcher {

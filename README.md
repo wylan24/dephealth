@@ -27,7 +27,7 @@ Top 10 actions
 
 ## Usage
 
-Requires Node.js 22.18 or newer.
+Requires Node.js 22.18 or newer. For CI on GitHub, use the [GitHub Action](#github-action).
 
 ```bash
 npx github:wylan24/dephealth path/to/project
@@ -46,6 +46,7 @@ dephealth detects which ecosystems the folder contains (`package.json`, `pyproje
 | Option | |
 | --- | --- |
 | `--json <file>` | Also write the full report as JSON (`-` for stdout) |
+| `--sarif <file>` | Also write SARIF 2.1.0 for GitHub code scanning (see [GitHub Action](#github-action)) |
 | `--html <file>` / `--no-html` | HTML report location, or skip it |
 | `--ci` | Exit 1 when a `--fail-on` rule is violated |
 | `--fail-on <rules>` | e.g. `vuln:high,deprecated:direct,score<40` |
@@ -57,9 +58,11 @@ dephealth detects which ecosystems the folder contains (`package.json`, `pyproje
 | `--github-token <t>` | Defaults to `$GITHUB_TOKEN` / `$GH_TOKEN` |
 | `--no-cache` / `--cache-dir <dir>` | API responses are cached on disk for 24 hours |
 
-### GitHub token
+### Tokens
 
-Optional but recommended. Without one GitHub allows about 60 requests per hour, which won't cover a mid-sized project. When the budget runs out dephealth keeps going on [deps.dev](https://deps.dev) and [OpenSSF Scorecard](https://securityscorecards.dev) data alone and says so in the report. A token with no scopes is enough.
+**GitHub**: optional but recommended (`GITHUB_TOKEN` or `--github-token`). Without one GitHub allows about 60 requests per hour, which won't cover a mid-sized project. When the budget runs out dephealth keeps going on [deps.dev](https://deps.dev) and [OpenSSF Scorecard](https://securityscorecards.dev) data alone and says so in the report. A token with no scopes is enough.
+
+**GitLab**: packages whose source lives on gitlab.com (including nested groups) are checked through GitLab's API. Without a token GitLab hides the archived flag and the issue count, so set `GITLAB_TOKEN` (a read-only personal access token) to get those too. A GitHub token is never sent to GitLab.
 
 ## The checks
 
@@ -71,7 +74,7 @@ v1 doesn't do reachability analysis (whether your code actually calls the vulner
 
 ### Abandoned
 
-Signals: author deprecation (npm `deprecated`; on PyPI the `Development Status :: 7 - Inactive` classifier), archived repository, time since last publish, commits in the last 12 months, number of npm maintainers (PyPI doesn't publish this), an open-issue backlog that's large *for the project's size*, Scorecard's "Maintained" check, and whether it links a source repo at all.
+Signals (from GitHub or GitLab, plus deps.dev): author deprecation (npm `deprecated`; on PyPI the `Development Status :: 7 - Inactive` classifier), archived repository, time since last publish, commits in the last 12 months, number of npm maintainers (PyPI doesn't publish this), an open-issue backlog that's large *for the project's size*, Scorecard's "Maintained" check, and whether it links a source repo at all.
 
 **It never flags on a single signal.** The only hard signals are deprecation and a repository archived with no recent activity. A repo archived right after a year of commits or releases usually means the package moved, so it's reported as *at risk* instead.
 
@@ -124,24 +127,46 @@ dephealth --ci --fail-on "vuln:high,deprecated:direct"
 
 Exit codes: `0` passed, `1` a rule was violated, `2` dephealth itself failed.
 
+## GitHub Action
+
 ```yaml
 # .github/workflows/dependency-health.yml
 name: dependency health
-on: [pull_request, workflow_dispatch]
+on: [pull_request, push, workflow_dispatch]
+permissions:
+  contents: read
+  security-events: write   # to upload findings to code scanning
 jobs:
   dephealth:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with: { node-version: 22 }
-      - run: npx --yes github:wylan24/dephealth . --ci --html dephealth-report.html
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with: { name: dephealth-report, path: dephealth-report.html }
+      - uses: wylan24/dephealth@v0
+        with:
+          fail-on: vuln:high,deprecated:direct
 ```
+
+On each run the Action:
+
+* checks the project and writes the terminal summary to the job summary;
+* uploads the findings to **GitHub code scanning**, so they show in the Security tab and as annotations on pull requests, on the exact line of `package.json`, `pyproject.toml` or the requirements file that declares the dependency (the lockfile for indirect ones);
+* uploads the interactive HTML report as a workflow artifact;
+* fails the job if a `fail-on` rule is broken.
+
+| Input | Default | |
+| --- | --- | --- |
+| `path` | `.` | Project folder to check |
+| `fail-on` | from config | CI rules, as above |
+| `fail` | `true` | Set `false` to report without failing the job |
+| `upload-sarif` | `true` | Upload to code scanning (needs `security-events: write`; skipped quietly on pull requests from forks) |
+| `sarif-category` | `dephealth` | Keeps several runs apart, e.g. one per folder |
+| `upload-report` | `true` | Upload the HTML report artifact |
+| `args` | | Extra options, e.g. `--prod --deep` |
+| `token` | `github.token` | Used for repository health signals |
+
+Outputs: `exit-code`, `sarif`, `report`. Code scanning alerts keep the same identity when you bump a still-affected package, so they update instead of piling up.
+
+Outside GitHub, run the CLI with `--ci --sarif dephealth.sarif` and feed the file to any SARIF viewer.
 
 ## Configuration
 
@@ -174,10 +199,10 @@ Every ignore entry **must** say why. The reason is shown in the report next to t
 src/
   parsers/     npm: package.json + package-lock / pnpm-lock / yarn.lock
                PyPI: pyproject.toml + uv.lock / poetry.lock / requirements / .venv
-  fetchers/    npm registry, PyPI, OSV, GitHub, deps.dev — disk-cached (24h), rate-limited, retrying
+  fetchers/    npm registry, PyPI, OSV, GitHub, GitLab, deps.dev — disk-cached (24h), rate-limited, retrying
   analyzers/   abandoned, outdated, insecure, weight
   advisor/     replacement lookup + effort rating
-  report/      scoring, actions, HTML / JSON / terminal renderers, CI rules
+  report/      scoring, actions, HTML / JSON / SARIF / terminal renderers, CI rules
   ecosystems.ts  per-ecosystem adapter: parser, registry, version scheme (semver / PEP 440), fix wording
   analyze.ts   orchestration
   cli.ts
@@ -193,6 +218,8 @@ npm test          # node:test, runs the TypeScript sources directly
 npm run typecheck
 npm run dev -- path/to/project
 ```
+
+Tests never touch the network: [`test/mock-fetch.ts`](test/mock-fetch.ts) stubs `fetch`, the fetcher tests simulate npm, PyPI, OSV, GitHub, GitLab and deps.dev responses, and [`test/e2e.test.ts`](test/e2e.test.ts) runs the whole analysis on a mixed npm + Python fixture. CI also runs the GitHub Action itself against the repo and against a known-vulnerable fixture.
 
 ## License
 

@@ -69,12 +69,20 @@ export interface RegistryInfo {
   latestDeprecated?: string;
   /** undefined where the registry doesn't expose it (PyPI) */
   maintainers?: number;
-  repository?: { owner: string; repo: string; url: string };
+  repository?: Repository;
   /** unpackedSize (bytes) for the installed version */
   unpackedSize?: number;
   weeklyDownloads?: number;
   keywords: string[];
   description?: string;
+}
+
+/** A source repository; `owner` may contain GitLab subgroups (`group/sub`). */
+export interface Repository {
+  host: 'github' | 'gitlab';
+  owner: string;
+  repo: string;
+  url: string;
 }
 
 export interface RepoInfo {

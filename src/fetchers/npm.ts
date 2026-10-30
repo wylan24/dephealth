@@ -1,4 +1,4 @@
-import type { RegistryInfo } from '../types.ts';
+import type { RegistryInfo, Repository } from '../types.ts';
 import { type DiskCache, fetchJson, limiter } from './http.ts';
 
 interface Packument {
@@ -22,13 +22,20 @@ interface TrimmedPackument {
   description?: string;
 }
 
-export function parseRepository(repo: string | undefined): RegistryInfo['repository'] {
+export function parseRepository(repo: string | undefined): Repository | undefined {
   if (!repo) return undefined;
-  const m =
+  const gh =
     /github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/i.exec(repo) ??
     /^(?:github:)?([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(repo);
-  if (!m) return undefined;
-  return { owner: m[1], repo: m[2], url: `https://github.com/${m[1]}/${m[2]}` };
+  if (gh) return { host: 'github', owner: gh[1], repo: gh[2], url: `https://github.com/${gh[1]}/${gh[2]}` };
+  // GitLab projects can sit in nested groups; `/-/` starts GitLab's UI routes (tree, issues, …)
+  const gl = /gitlab\.com[/:]((?:[\w.-]+\/)+?[\w.-]+?)(?:\.git)?(?:\/-\/.*|[#?].*|\/)?$/i.exec(repo) ?? /^gitlab:((?:[\w.-]+\/)+[\w.-]+?)(?:\.git)?$/.exec(repo);
+  if (gl) {
+    const parts = gl[1].split('/');
+    const name = parts.pop()!;
+    return { host: 'gitlab', owner: parts.join('/'), repo: name, url: `https://gitlab.com/${gl[1]}` };
+  }
+  return undefined;
 }
 
 const encodeName = (name: string) => name.replace('/', '%2f');

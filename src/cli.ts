@@ -39,6 +39,7 @@ CI
 
 Network
   --github-token <t>    GitHub token (default: $GITHUB_TOKEN or $GH_TOKEN); optional but recommended
+                        GitLab-hosted packages use $GITLAB_TOKEN if set (optional)
   --cache-dir <dir>     response cache (24h) location
   --no-cache            don't read or write the cache
 
@@ -103,6 +104,7 @@ async function main(): Promise<number> {
     root,
     config,
     githubToken: values['github-token'] ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN,
+    gitlabToken: process.env.GITLAB_TOKEN,
     cacheDir: values['no-cache'] ? null : (values['cache-dir'] ?? DiskCache.defaultDir()),
     deep: !!values.deep,
     bundle: !!values.bundle,

@@ -26,7 +26,7 @@ function reg(over: Partial<RegistryInfo> = {}): RegistryInfo {
     versions: ['1.0.0', '1.1.0', '2.0.0', '3.0.0'],
     maintainers: 3,
     keywords: [],
-    repository: { owner: 'o', repo: 'r', url: 'https://github.com/o/r' },
+    repository: { host: 'github', owner: 'o', repo: 'r', url: 'https://github.com/o/r' },
     ...over,
   };
 }
@@ -160,5 +160,8 @@ test('repository URL parsing', () => {
   assert.equal(parseRepository('git@github.com:a/b.git')?.repo, 'b');
   assert.equal(parseRepository('github:x/y')?.owner, 'x');
   assert.equal(parseRepository('https://github.com/babel/babel/tree/main/packages/x')?.repo, 'babel');
-  assert.equal(parseRepository('https://gitlab.com/a/b'), undefined);
+  assert.deepEqual(parseRepository('git+https://gitlab.com/gitlab-org/gitlab-ui.git'), { host: 'gitlab', owner: 'gitlab-org', repo: 'gitlab-ui', url: 'https://gitlab.com/gitlab-org/gitlab-ui' });
+  assert.deepEqual(parseRepository('https://gitlab.com/group/sub/project/-/tree/main'), { host: 'gitlab', owner: 'group/sub', repo: 'project', url: 'https://gitlab.com/group/sub/project' });
+  assert.equal(parseRepository('gitlab:a/b')?.host, 'gitlab');
+  assert.equal(parseRepository('https://bitbucket.org/a/b'), undefined);
 });
