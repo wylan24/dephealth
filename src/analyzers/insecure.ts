@@ -1,0 +1,34 @@
+import semver from 'semver';
+import type { Finding, Level, Severity, Vulnerability } from '../types.ts';
+
+const LEVEL: Record<Severity, Level> = { critical: 'critical', high: 'high', moderate: 'medium', low: 'low', unknown: 'medium' };
+const PENALTY: Record<Severity, number> = { critical: 40, high: 25, moderate: 10, low: 3, unknown: 10 };
+export const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'moderate', 'low', 'unknown'];
+
+export function analyzeInsecure(name: string, direct: boolean, via: string[], vulns: Vulnerability[]): Finding[] {
+  const sorted = [...vulns].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
+  let budget = 60; // several advisories on one package shouldn't zero the score on their own
+  // the lowest version that clears *every* advisory, when all of them have a fix
+  const fixes = vulns.map((v) => v.fixedIn).filter((f): f is string => !!f && !!semver.valid(f));
+  const clearsAll = fixes.length === vulns.length && fixes.length ? semver.sort(fixes).at(-1) : undefined;
+  const all = vulns.length > 1 && clearsAll ? ` (fixes ${vulns.length === 2 ? 'both' : `all ${vulns.length}`} advisories)` : '';
+  return sorted.map((v) => {
+    const target = clearsAll ?? v.fixedIn;
+    const penalty = Math.min(PENALTY[v.severity], budget);
+    budget -= penalty;
+    const origin = direct ? 'direct dependency' : `pulled in by ${via.slice(0, 3).join(', ')}${via.length > 3 ? ` and ${via.length - 3} more` : ''}`;
+    let fix: string;
+    if (v.id.startsWith('MAL-')) fix = `Remove ${name} immediately and rotate any secrets on machines that installed it`;
+    else if (!v.fixedIn) fix = `No fixed version published; replace ${name} or confirm the vulnerable code path is not used`;
+    else if (direct) fix = `Upgrade to ${name}@${target} or later${all}`;
+    else fix = `Upgrade ${via[0] ?? 'the parent package'} to a release that pulls ${name}@>=${target}, or add an "overrides" entry for ${name}${all}`;
+    return {
+      category: 'insecure' as const,
+      level: LEVEL[v.severity],
+      code: 'vuln',
+      message: `${v.id} (${v.severity}): ${v.summary} — ${origin}; reachability: unknown`,
+      penalty,
+      fix,
+    };
+  });
+}

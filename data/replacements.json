@@ -1,0 +1,51 @@
+{
+  "$comment": "Curated overlay on top of the e18e module-replacements dataset. `effort` rates a specific swap (\"<package> > <replacement>\"); `extra` adds suggestions e18e doesn't cover; `aliases` fixes replacement ids that aren't npm package names.",
+  "legacy": {
+    "moment": "The Moment.js team calls it a legacy project in maintenance mode (momentjs.com/docs/#/-project-status/)",
+    "moment-timezone": "Maintained alongside Moment.js, which is a legacy project in maintenance mode",
+    "request": "Deprecated by its maintainers in 2020",
+    "enzyme": "No adapter for React 18+; the React team recommends Testing Library",
+    "node-sass": "LibSass and node-sass are deprecated in favour of Dart Sass"
+  },
+  "aliases": {
+    "day.js": "dayjs"
+  },
+  "effort": {
+    "moment > day.js": "small API changes",
+    "moment > date-fns": "rewrite",
+    "moment > luxon": "rewrite",
+    "moment > Date": "rewrite",
+    "moment > Temporal": "rewrite",
+    "request > fetch": "rewrite",
+    "request > ofetch": "small API changes",
+    "request > ky": "small API changes",
+    "node-fetch > fetch": "drop-in",
+    "cross-fetch > fetch": "drop-in",
+    "isomorphic-fetch > fetch": "drop-in",
+    "uuid > crypto.randomUUID": "drop-in",
+    "lodash > lodash-underscore": "small API changes",
+    "lodash > es-toolkit": "drop-in",
+    "underscore > es-toolkit": "small API changes",
+    "axios > fetch": "small API changes",
+    "object-assign > Object.assign": "drop-in",
+    "rimraf > fs.rm": "drop-in",
+    "mkdirp > fs.mkdir": "drop-in",
+    "glob > fs.glob": "small API changes",
+    "chalk > picocolors": "small API changes"
+  },
+  "extra": {
+    "node-sass": [{ "name": "sass", "kind": "package", "effort": "drop-in", "note": "Dart Sass is the maintained implementation" }],
+    "tslint": [{ "name": "typescript-eslint", "kind": "package", "effort": "rewrite", "note": "migrate rules with tslint-to-eslint-config" }],
+    "request-promise": [{ "name": "fetch", "kind": "native", "effort": "rewrite" }],
+    "request-promise-native": [{ "name": "fetch", "kind": "native", "effort": "rewrite" }],
+    "left-pad": [{ "name": "String.prototype.padStart", "kind": "native", "effort": "drop-in" }],
+    "babel-eslint": [{ "name": "@babel/eslint-parser", "kind": "package", "effort": "drop-in" }],
+    "@babel/polyfill": [{ "name": "core-js", "kind": "package", "effort": "small API changes", "note": "or drop polyfills your targets no longer need" }],
+    "core-js": [{ "name": "(remove)", "kind": "removal", "effort": "small API changes", "note": "modern targets rarely need a full polyfill bundle; use browserslist-driven usage polyfills" }],
+    "querystring": [{ "name": "URLSearchParams", "kind": "native", "effort": "drop-in" }],
+    "faker": [{ "name": "@faker-js/faker", "kind": "package", "effort": "drop-in" }],
+    "colors": [{ "name": "picocolors", "kind": "package", "effort": "small API changes" }],
+    "istanbul": [{ "name": "c8", "kind": "package", "effort": "small API changes" }],
+    "@types/node-fetch": [{ "name": "(remove)", "kind": "removal", "effort": "drop-in", "note": "fetch types ship with @types/node 18+" }]
+  }
+}

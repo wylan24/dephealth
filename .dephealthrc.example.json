@@ -1,0 +1,18 @@
+{
+  "failOn": ["vuln:high", "deprecated:direct", "score<30"],
+  "nodeTarget": "20",
+  "browserTargets": { "chrome": "111", "edge": "111", "firefox": "114", "safari": "16.4" },
+  "staleYears": 2,
+  "ignore": [
+    {
+      "package": "left-pad",
+      "checks": ["abandoned"],
+      "reason": "Vendored copy; removal tracked in ISSUE-123",
+      "until": "2026-12-31"
+    },
+    {
+      "package": "@internal/*",
+      "reason": "Internal packages are reviewed by the platform team"
+    }
+  ]
+}
