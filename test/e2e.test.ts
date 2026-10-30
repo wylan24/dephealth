@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { mockFetch as mockFetchFresh } from './mock-fetch.ts';
 import { analyze } from '../src/analyze.ts';
 import { loadConfig } from '../src/config.ts';
 import { evaluate, parseRules } from '../src/report/ci.ts';
@@ -127,4 +128,30 @@ test('e2e: SARIF anchors findings to the declaring line, with stable fingerprint
   // the fingerprint ignores the version, so upgrading a still-broken package updates the same alert
   assert.equal(JSON.parse(renderSarif(report)).runs[0].results[0].partialFingerprints['dephealth/v1'], run.results[0].partialFingerprints['dephealth/v1']);
   assert.ok(!run.results.some((r: { level: string }) => r.level === 'none'));
+});
+
+test('e2e: complete results are not marked incomplete', () => {
+  assert.deepEqual(report.incomplete, []);
+});
+
+test('e2e: an unreachable vulnerability database marks results incomplete, never "all clear"', async () => {
+  mock.restore();
+  const offline = mockFetchFresh([[/./, () => new Response('<html>proxy error</html>', { status: 200 })]]);
+  try {
+    const root = project();
+    const r = await analyze({ root, config: loadConfig(root).config, cacheDir: null, deep: false, bundle: false, prodOnly: false, noSearch: true, version: 'test', log: () => {} });
+    assert.ok(r.incomplete.some((x) => x.includes('Vulnerabilities could not be checked for npm')));
+    assert.ok(r.incomplete.some((x) => /npm registry lookups failed for 5 of 5 packages/.test(x)));
+    assert.equal(r.summary.vulnerabilities.critical, 0); // nothing known, which is exactly why it's flagged
+  } finally {
+    offline.restore();
+  }
+});
+
+test('e2e: no lockfile and nothing installed is "nothing was checked"', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'dephealth-nolock-'));
+  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', dependencies: { lodash: '^4.0.0' } }));
+  const r = await analyze({ root: dir, config: loadConfig(dir).config, cacheDir: null, deep: false, bundle: false, prodOnly: false, noSearch: true, version: 'test', log: () => {} });
+  assert.equal(r.summary.packages, 0);
+  assert.match(r.incomplete[0], /^Nothing was checked: there is no lockfile/);
 });

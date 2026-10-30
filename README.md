@@ -1,5 +1,25 @@
 # dephealth
 
+[![npm](https://img.shields.io/npm/v/@wylan24/dephealth)](https://www.npmjs.com/package/@wylan24/dephealth)
+[![CI](https://github.com/wylan24/dephealth/actions/workflows/ci.yml/badge.svg)](https://github.com/wylan24/dephealth/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@wylan24/dephealth)](LICENSE)
+
+## Quick start
+
+You need [Node.js](https://nodejs.org) 22.18 or newer. In your project folder (the one with `package.json`, `pyproject.toml` or `requirements.txt`), run:
+
+```bash
+npx @wylan24/dephealth
+```
+
+You get a short summary with the top actions in the terminal, and a full interactive report in `dephealth-report.html`; open it in your browser. Nothing in your project is changed.
+
+* **On GitHub?** Add the [GitHub Action](#github-action) to check every pull request.
+* **Checking a different folder?** `npx @wylan24/dephealth path/to/project`
+* **Something odd?** See [Troubleshooting](#troubleshooting).
+
+## What it does
+
 A dependency health report for **npm** and **Python (PyPI)** projects. Point it at a project folder and it reads the manifests and lockfiles, checks every package, and groups the problems into four categories, each with a suggested fix:
 
 | Category | What it means |
@@ -30,7 +50,7 @@ Top 10 actions
 Requires Node.js 22.18 or newer. For CI on GitHub, use the [GitHub Action](#github-action).
 
 ```bash
-npx @wylan24/dephealth path/to/project
+npx @wylan24/dephealth [path/to/project] [options]
 ```
 
 Or install it once and run `dephealth`:
@@ -55,10 +75,11 @@ dephealth detects which ecosystems the folder contains (`package.json`, `pyproje
 | `--json <file>` | Also write the full report as JSON (`-` for stdout) |
 | `--sarif <file>` | Also write SARIF 2.1.0 for GitHub code scanning (see [GitHub Action](#github-action)) |
 | `--html <file>` / `--no-html` | HTML report location, or skip it |
-| `--ci` | Exit 1 when a `--fail-on` rule is violated |
+| `--ci` | Exit 1 when a `--fail-on` rule is violated, 2 when results are incomplete |
+| `--allow-incomplete` | In CI, accept partial results (e.g. a service was unreachable) instead of exiting 2 |
 | `--fail-on <rules>` | e.g. `vuln:high,deprecated:direct,score<40` |
 | `--deep` | Registry metadata for transitive packages too (deprecations, outdated major lines). Slower on first run |
-| `--bundle` | Measure minified + gzipped browser bundle size with esbuild (frontend workspaces, needs `node_modules`) |
+| `--bundle` | Measure minified + gzipped browser bundle size (frontend workspaces; needs `node_modules` and [esbuild](https://esbuild.github.io), which is optional: `npm install -D esbuild`) |
 | `--prod` | Ignore dev dependencies (devDependencies, dev dependency groups, dev requirement files) |
 | `--ecosystem <list>` | `npm`, `pypi` or `npm,pypi` (default: every one detected) |
 | `--no-search` | Don't search npm for replacement candidates (PyPI has no search API) |
@@ -132,7 +153,9 @@ dephealth --ci --fail-on "vuln:high,deprecated:direct"
 | `avg<N` | the average direct-dependency score is below N |
 | `libyear>N` | total libyears across direct dependencies exceeds N |
 
-Exit codes: `0` passed, `1` a rule was violated, `2` dephealth itself failed.
+Exit codes: `0` passed, `1` a rule was violated, `2` the check couldn't complete or dephealth itself failed.
+
+**"Couldn't check" never counts as "all clear".** If OSV.dev or a registry is unreachable, or nothing could be resolved (no lockfile and nothing installed), the report says the results are incomplete and CI mode exits `2`, even if no problems were found. Use `--allow-incomplete` to accept partial results anyway.
 
 ## GitHub Action
 
@@ -216,6 +239,30 @@ src/
 ```
 
 Analyzers are pure functions over a `DependencyGraph` and fetched metadata. Adding an ecosystem means writing an adapter in `ecosystems.ts`: a parser, a registry fetcher and a version scheme. See [ROADMAP.md](ROADMAP.md).
+
+## Privacy: what is sent where
+
+dephealth reads your manifests and lockfiles locally and never uploads them. To check packages it sends **package names and versions** (and nothing else from your project) to these public services:
+
+| Service | What for |
+| --- | --- |
+| [OSV.dev](https://osv.dev) (Google) | Known vulnerabilities |
+| registry.npmjs.org, api.npmjs.org | Versions, publish dates, deprecations, weekly downloads |
+| pypi.org, pypistats.org | The same for Python packages |
+| [deps.dev](https://deps.dev) (Google) | Repository stats and OpenSSF Scorecard |
+| api.github.com, gitlab.com | Archived flag and commit activity of each dependency's source repository |
+
+Packages from a private scoped registry, git or local paths are never looked up (they're shown as *not assessed*). Your GitHub/GitLab tokens are only sent to their own hosts. Responses are cached on your machine for 24 hours (`--cache-dir`, `--no-cache`). If your dependency list itself is confidential, run dephealth only where you're comfortable sending package names to these services.
+
+## Troubleshooting
+
+* **`'dephealth' is not recognized` right after `npx @wylan24/dephealth`** inside a clone of the dephealth repo: npx uses the local copy there. Run it from your own project folder instead.
+* **"Nothing was checked: there is no lockfile"**: dephealth reads lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `poetry.lock`, pinned requirements) or installed packages. Run `npm install` / `uv lock` / `poetry lock` first.
+* **"Results are incomplete" / CI exits 2**: a service was unreachable or rate-limited. Check your connection and retry; partial results can be accepted with `--allow-incomplete`.
+* **Behind a corporate proxy**: Node's `fetch` ignores `HTTPS_PROXY` unless you also set `NODE_USE_ENV_PROXY=1`, which recent Node 22 and 24+ releases support.
+* **"GitHub API rate limit reached"**: set `GITHUB_TOKEN` (any token, no scopes needed); with the `gh` CLI: `GITHUB_TOKEN=$(gh auth token) npx @wylan24/dephealth`.
+* **The first run is slow on a big monorepo** (a minute or two for hundreds of dependencies): responses are cached for 24 hours, so the next runs take seconds.
+* **A finding is wrong for your project**: add an `ignore` entry with a reason (see [Configuration](#configuration)), and please [open an issue](https://github.com/wylan24/dephealth/issues) so the rule can be improved.
 
 ## Development
 

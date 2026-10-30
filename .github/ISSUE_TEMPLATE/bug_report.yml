@@ -1,0 +1,50 @@
+name: Bug or wrong result
+description: Something broke, or a finding is wrong for your project
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 'Thanks! Please leave out anything private (internal package names, tokens). For security problems in dephealth itself, use Security → Report a vulnerability instead.'
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem?
+      options:
+        - It crashed or printed an error
+        - A finding is wrong (false positive)
+        - Something was missed (false negative)
+        - The report or output is confusing
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: 'e.g. "esbuild is marked at-risk, but it had a release last week"'
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: The command you ran and the relevant part of the output.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: dephealth version
+      placeholder: output of `npx @wylan24/dephealth --version`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Node.js version and OS
+      placeholder: 'e.g. Node 22.20, Windows 11'
+  - type: dropdown
+    id: lockfile
+    attributes:
+      label: Lockfile / project type
+      multiple: true
+      options: [package-lock.json, pnpm-lock.yaml, yarn.lock, uv.lock, poetry.lock, requirements.txt, other]

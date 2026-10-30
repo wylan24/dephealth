@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { all as replacements, nativeReplacements, type ModuleReplacement } from 'module-replacements';
 import semver from 'semver';
@@ -126,10 +129,39 @@ export function analyzeWeight(w: WeightInput): Finding[] {
   return findings;
 }
 
+type Esbuild = typeof import('esbuild');
+const esbuildCache = new Map<string, Promise<Esbuild | null>>();
+
+/**
+ * esbuild is an optional peer dependency (only `--bundle` needs it, and it's ~10 MB): use the project's
+ * own copy if it has one, else one installed next to dephealth, else report that it's missing.
+ */
+export function loadEsbuild(projectDir: string): Promise<Esbuild | null> {
+  if (!esbuildCache.has(projectDir)) {
+    esbuildCache.set(
+      projectDir,
+      (async () => {
+        try {
+          const fromProject = createRequire(path.join(projectDir, 'package.json')).resolve('esbuild');
+          return (await import(pathToFileURL(fromProject).href)) as Esbuild;
+        } catch {
+          try {
+            return (await import('esbuild')) as Esbuild;
+          } catch {
+            return null;
+          }
+        }
+      })(),
+    );
+  }
+  return esbuildCache.get(projectDir)!;
+}
+
 /** Minified + gzipped size of `export * from "<name>"`, bundled from the project's node_modules. */
 export async function measureBundle(name: string, resolveDir: string): Promise<{ minified: number; gzip: number } | undefined> {
   try {
-    const esbuild = await import('esbuild');
+    const esbuild = await loadEsbuild(resolveDir);
+    if (!esbuild) return undefined;
     const result = await esbuild.build({
       stdin: { contents: `export * from ${JSON.stringify(name)};`, resolveDir, loader: 'js' },
       bundle: true,

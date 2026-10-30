@@ -6,10 +6,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         node: [22, 24]
+        include:
+          - { os: macos-latest, node: 22 }
+          - { os: windows-latest, node: 22 }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -48,6 +56,12 @@ jobs:
         uses: ./
         with:
           sarif-category: dephealth-self
+      - name: Published Action tag, as users reference it
+        id: published
+        uses: wylan24/dephealth@v0
+        with:
+          upload-sarif: 'false'
+          upload-report: 'false'
       - name: Write a fixture with a known-vulnerable dependency
         # created at run time so the repository itself never contains a vulnerable lockfile
         run: |
@@ -66,10 +80,12 @@ jobs:
       - name: Assert outcomes
         env:
           SELF: ${{ steps.self.outputs.exit-code }}
+          PUBLISHED: ${{ steps.published.outputs.exit-code }}
           FIXTURE: ${{ steps.fixture.outputs.exit-code }}
           SARIF: ${{ steps.fixture.outputs.sarif }}
         run: |
           echo "self=$SELF fixture=$FIXTURE"
           test "$SELF" = 0
+          test "$PUBLISHED" = 0
           test "$FIXTURE" = 1
           node -e "const s=JSON.parse(require('fs').readFileSync(process.env.SARIF,'utf8')); const r=s.runs[0].results.filter(x=>x.properties.package==='lodash'); if(!r.length) process.exit(1); console.log(r.length+' lodash findings, e.g. '+r[0].ruleId)"

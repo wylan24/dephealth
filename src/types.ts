@@ -210,4 +210,9 @@ export interface Report {
   actions: Action[];
   packages: PackageReport[];
   warnings: string[];
+  /**
+   * Reasons the results can't be trusted as complete (a service was unreachable, nothing could be
+   * resolved…). Non-empty means "unknown", never "all clear": CI mode exits 2.
+   */
+  incomplete: string[];
 }

@@ -22,6 +22,10 @@ export function renderText(r: Report, top = 10): string {
     `  Insecure ${s.byCategory.insecure} ${dim(`(${v.critical} critical, ${v.high} high, ${v.moderate} moderate, ${v.low} low)`)}   Abandoned ${s.byCategory.abandoned}   Outdated ${s.byCategory.outdated}   Heavy ${s.byCategory.weight}`,
   ];
   if (s.duplicates.length) lines.push(dim(`  ${s.duplicates.length} packages locked at more than one version`));
+  if (r.incomplete.length) {
+    lines.push('', red(bold('  Results are incomplete, so a clean result here does not mean all clear:')));
+    for (const reason of r.incomplete) lines.push(red(`  ! ${reason}`));
+  }
   if (r.actions.length) {
     lines.push('', bold(`Top ${Math.min(top, r.actions.length)} actions`));
     r.actions.slice(0, top).forEach((a, i) => {
@@ -29,7 +33,7 @@ export function renderText(r: Report, top = 10): string {
       lines.push(`  ${String(i + 1).padStart(2)}. ${eco}${bold(a.package)} ${dim(`[${a.category}]`)} ${a.title}`);
       lines.push(dim(`      ${a.detail}`));
     });
-  } else {
+  } else if (!r.incomplete.length) {
     lines.push('', green('  No actions needed.'));
   }
   for (const w of r.warnings) lines.push(yellow(`  ! ${w}`));

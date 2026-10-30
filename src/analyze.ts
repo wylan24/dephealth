@@ -2,7 +2,7 @@ import path from 'node:path';
 import { analyzeAbandoned, lastPublish } from './analyzers/abandoned.ts';
 import { analyzeInsecure, SEVERITY_ORDER } from './analyzers/insecure.ts';
 import { analyzeOutdated } from './analyzers/outdated.ts';
-import { analyzeWeight, duplicates, measureBundle, transitiveCount } from './analyzers/weight.ts';
+import { analyzeWeight, duplicates, loadEsbuild, measureBundle, transitiveCount } from './analyzers/weight.ts';
 import { searchCandidates } from './advisor/replacements.ts';
 import { type Config, findIgnore } from './config.ts';
 import { ECOSYSTEMS, nodeTarget, type EcosystemAdapter } from './ecosystems.ts';
@@ -32,7 +32,11 @@ export interface AnalyzeOptions {
   log: (msg: string) => void;
 }
 
+/** "a, b, c and 4 more" */
+const listSome = (names: string[], n = 5) => names.slice(0, n).join(', ') + (names.length > n ? ` and ${names.length - n} more` : '');
+
 interface Shared {
+  incomplete: (msg: string) => void;
   opts: AnalyzeOptions;
   osv: OsvFetcher;
   repos: RepoFetcher;
@@ -50,7 +54,7 @@ interface EcosystemResult {
 
 /** Run every check for one ecosystem's dependency graph. */
 async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s: Shared): Promise<EcosystemResult> {
-  const { opts, osv, repos, warn, log, now } = s;
+  const { opts, osv, repos, warn, log, now, incomplete } = s;
   const hints = eco.hints(graph);
   const reg = eco.registry(s.cache);
   const privateReasonFor = eco.privateReason(graph.root);
@@ -96,22 +100,30 @@ async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s
   try {
     vulns = await osv.scan(publicPkgs.map((n) => ({ name: n.name, version: n.version })), eco.id, eco.scheme);
   } catch (err) {
-    warn(`OSV.dev query failed, ${eco.id} security results are missing: ${(err as Error).message}`);
+    incomplete(`Vulnerabilities could not be checked for ${eco.id} packages: OSV.dev was unreachable (${(err as Error).message}).`);
   }
 
   const wantRegistry = publicPkgs.filter((n) => opts.deep || directInfo.has(n.id));
   log(`Fetching ${eco.id} registry metadata for ${wantRegistry.length} packages…`);
   const registry = new Map<string, RegistryInfo>();
   const regLimit = limiter(24);
+  const regFailed: { name: string; error: string }[] = [];
   await Promise.all(
     wantRegistry.map((n) =>
       regLimit(() => reg.info(n.name, n.version, directInfo.has(n.id)))
         .then((info) => registry.set(n.id, info))
-        .catch((err) => warn(`${eco.id} registry lookup failed for ${n.name}: ${(err as Error).message}`)),
+        .catch((err) => regFailed.push({ name: n.name, error: (err as Error).message })),
     ),
   );
+  if (regFailed.length) {
+    const msg = `${eco.id} registry lookups failed for ${regFailed.length} of ${wantRegistry.length} packages (${regFailed[0].error}): ${listSome(regFailed.map((f) => f.name).sort())}.`;
+    // a few timeouts are noise; losing most of the data means the outdated/abandoned results are unreliable
+    if (regFailed.length * 2 >= wantRegistry.length) incomplete(`${msg} Outdated and abandoned checks are unreliable.`);
+    else warn(msg);
+  }
 
   const repoFor = new Map<string, RepoInfo>();
+  const repoFailed: string[] = [];
   const repoTargets = wantRegistry.filter((n) => directInfo.has(n.id) && registry.get(n.id)?.repository);
   log(`Checking ${repoTargets.length} source repositories (GitHub${opts.githubToken ? '' : ', no token'}, GitLab, deps.dev)…`);
   await Promise.all(
@@ -119,17 +131,21 @@ async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s
       const r = registry.get(n.id)!.repository!;
       try {
         repoFor.set(n.id, await repos.info(r));
-      } catch (err) {
-        warn(`Repository lookup failed for ${r.url}: ${(err as Error).message}`);
+      } catch {
+        repoFailed.push(r.url.replace(/^https:\/\//, ''));
       }
     }),
   );
+  if (repoFailed.length) warn(`Repository lookups failed for ${repoFailed.length} packages, so their archived/activity signals are missing: ${listSome(repoFailed.sort())}.`);
   if (!opts.githubToken && repoTargets.length > 25) warn('No GITHUB_TOKEN set: GitHub allows ~60 requests/hour without one, which may not cover this project.');
 
   // ------------------------------------------------------------ analyze
   const wsByName = new Map(graph.workspaces.map((w) => [w.name, w]));
   const anyFrontend = graph.workspaces.some((w) => w.frontend);
   const bundleLimit = limiter(4);
+  if (opts.bundle && eco.bundles && anyFrontend && !(await loadEsbuild(graph.root))) {
+    warn('--bundle needs esbuild, which is optional: add it to the project (`npm install -D esbuild`) or install it globally next to dephealth. Bundle sizes were skipped.');
+  }
 
   const packages: PackageReport[] = await Promise.all(
     included.map(async (n) => {
@@ -234,16 +250,20 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
   const warn = (m: string) => {
     if (!warnings.includes(m)) warnings.push(m);
   };
+  const incompleteReasons: string[] = [];
+  const incomplete = (m: string) => {
+    if (!incompleteReasons.includes(m)) incompleteReasons.push(m);
+  };
   const adapters = ECOSYSTEMS.filter((e) => (!opts.ecosystems || opts.ecosystems.includes(e.id)) && e.detect(root));
   if (!adapters.length) {
     throw new Error(
       opts.ecosystems
         ? `No ${opts.ecosystems.join('/')} project found in ${root}`
-        : `No package.json, pyproject.toml or requirements*.txt found in ${root}`,
+        : `No package.json, pyproject.toml or requirements*.txt found in ${root}. Run dephealth inside a project folder, or pass its path: dephealth path/to/project`,
     );
   }
   const cache = new DiskCache(opts.cacheDir);
-  const shared: Omit<Shared, 'log'> = { opts, osv: new OsvFetcher(cache), repos: new RepoFetcher(cache, opts.githubToken, warn, opts.gitlabToken), cache, warn, now: new Date() };
+  const shared: Omit<Shared, 'log'> = { incomplete, opts, osv: new OsvFetcher(cache), repos: new RepoFetcher(cache, opts.githubToken, warn, opts.gitlabToken), cache, warn, now: new Date() };
 
   const results: EcosystemResult[] = [];
   for (const eco of adapters) {
@@ -271,6 +291,14 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
   }
   const directs = packages.filter((p) => p.direct);
   const scored = directs.filter((p) => p.assessed);
+  const declared = results.reduce((n, r) => n + r.graph.workspaces.reduce((m, w) => m + w.direct.length, 0), 0);
+  if (declared > 0 && directs.length === 0) {
+    incomplete(
+      results.some((r) => r.graph.lockfile.kind === 'none')
+        ? 'Nothing was checked: there is no lockfile and the dependencies are not installed. Run your package manager (e.g. `npm install`, `uv lock`) first, or commit the lockfile.'
+        : 'Nothing was checked: none of the declared dependencies were found in the lockfile.',
+    );
+  }
 
   if (cache.dir) opts.log(`Cache: ${cache.hits} hits, ${cache.misses} misses (${cache.dir})`);
   return {
@@ -298,5 +326,6 @@ export async function analyze(opts: AnalyzeOptions): Promise<Report> {
     actions: buildActions(packages),
     packages,
     warnings,
+    incomplete: incompleteReasons,
   };
 }

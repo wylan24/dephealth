@@ -182,3 +182,19 @@ test('repo: GitLab projects (nested groups) use the GitLab API and deps.dev', as
   assert.equal(gl.headers.authorization, undefined); // the GitHub token never goes to GitLab
   assert.equal(m.count('https://api.github.com'), 0);
 });
+
+test('OSV: a malformed batch answer throws instead of reading as "no vulnerabilities"', async () => {
+  const m = mockFetch([['https://api.osv.dev/v1/querybatch', () => ({ results: [] })]]);
+  restore = m.restore;
+  await assert.rejects(new OsvFetcher(new DiskCache(null)).scan([{ name: 'a', version: '1.0.0' }]), /unexpected response from OSV/);
+});
+
+test('OSV: an advisory whose details fail to load is kept with unknown severity', async () => {
+  const m = mockFetch([
+    ['https://api.osv.dev/v1/querybatch', () => ({ results: [{ vulns: [{ id: 'GHSA-gone', modified: '1' }] }] })],
+    ['https://api.osv.dev/v1/vulns/GHSA-gone', () => new Response('not json', { status: 200 })],
+  ]);
+  restore = m.restore;
+  const out = await new OsvFetcher(new DiskCache(null)).scan([{ name: 'a', version: '1.0.0' }]);
+  assert.deepEqual(out.get('a@1.0.0')!.map((v) => [v.id, v.severity]), [['GHSA-gone', 'unknown']]);
+});

@@ -86,6 +86,7 @@ footer{padding:32px 16px 48px}
 .card .l{color:var(--muted);font-size:13px}
 .card .s{color:var(--muted);font-size:12px;margin-top:2px}
 .warn{background:color-mix(in srgb,var(--med) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--med) 40%,var(--line));border-radius:8px;padding:8px 12px;margin-top:12px;font-size:13px}
+.warn.incomplete{border-color:var(--crit);font-weight:600}
 .actions{margin:0;padding:0;list-style:none;counter-reset:a;background:var(--panel);border:1px solid var(--line);border-radius:10px}
 .actions li{counter-increment:a;display:grid;grid-template-columns:28px 1fr;gap:4px 10px;padding:12px 16px;border-top:1px solid var(--line)}
 .actions li:first-child{border-top:0}
@@ -149,10 +150,11 @@ $('#cards').append(
   card(s.byCategory.weight, 'Heavier than needed'),
   card(s.packages, 'Packages', s.direct + ' direct · ' + (s.packages - s.assessed) + ' not assessed'),
 );
+for (const w of R.incomplete ?? []) $('#warnings').append(el('div', { class: 'warn incomplete', text: 'Incomplete: ' + w }));
 for (const w of R.warnings) $('#warnings').append(el('div', { class: 'warn', text: w }));
 
 const acts = R.actions.slice(0, 10);
-if (!acts.length) $('#actions').append(el('li', {}, el('div', { class: 't', text: 'Nothing to do — every dependency looks healthy.' })));
+if (!acts.length) $('#actions').append(el('li', {}, el('div', { class: 't', text: (R.incomplete ?? []).length ? 'No actions found, but the results are incomplete (see above).' : 'Nothing to do — every dependency looks healthy.' })));
 for (const a of acts) $('#actions').append(el('li', {}, el('div', { class: 't' }, multi ? el('span', { class: 'tag', text: a.ecosystem }) : null, el('span', { class: 'tag', text: LABEL[a.category] }), a.package + ' — ' + a.title), el('div', { class: 'd', text: a.detail })));
 
 const state = { q: '', cats: new Set(), directOnly: true, problemsOnly: true, hideDev: false, sort: 'score', dir: 1, open: new Set() };

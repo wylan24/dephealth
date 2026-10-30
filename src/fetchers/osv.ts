@@ -135,7 +135,11 @@ export class OsvFetcher {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ queries: chunk.map((p) => ({ package: { name: p.name, ecosystem }, version: p.version })) }),
       });
-      data?.results.forEach((r, j) => {
+      // an empty or malformed answer must fail loudly: read as "no vulnerabilities" it would be a false all-clear
+      if (!data || !Array.isArray(data.results) || data.results.length !== chunk.length) {
+        throw new Error(`unexpected response from OSV.dev querybatch (${data ? `${data.results?.length ?? 'no'} results for ${chunk.length} queries` : 'empty'})`);
+      }
+      data.results.forEach((r, j) => {
         const key = `${chunk[j].name}@${chunk[j].version}`;
         const vulns = r.vulns ?? [];
         idsByPkg.set(key, vulns);
@@ -150,7 +154,9 @@ export class OsvFetcher {
       [...wanted].map(([id, modified]) =>
         this.cache
           .wrap(`osv:vuln:${id}:${modified}`, () => this.limit(async () => (await fetchJson<OsvRecord>(`${API}/vulns/${id}`)).data))
-          .then((rec) => records.set(id, rec)),
+          .then((rec) => records.set(id, rec))
+          // one advisory failing to load shouldn't discard the whole scan; it's kept with unknown severity
+          .catch(() => records.set(id, null)),
       ),
     );
 
@@ -162,7 +168,11 @@ export class OsvFetcher {
       const vulns: Vulnerability[] = [];
       for (const { id } of list) {
         const rec = records.get(id);
-        if (!rec) continue;
+        if (!rec) {
+          // the advisory exists but its details couldn't be fetched: keep it rather than lose a known vulnerability
+          vulns.push({ id, aliases: [], summary: 'details could not be fetched from OSV.dev', severity: 'unknown', url: `https://osv.dev/vulnerability/${id}` });
+          continue;
+        }
         vulns.push({
           id: rec.id,
           aliases: rec.aliases ?? [],

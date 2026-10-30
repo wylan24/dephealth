@@ -36,6 +36,7 @@ Checks
 CI
   --ci                  exit 1 when any --fail-on rule is violated
   --fail-on <rules>     comma-separated rules (default: from config, else vuln:high,deprecated:direct)
+  --allow-incomplete    don't exit 2 when results are incomplete (e.g. a service was unreachable)
 
 Network
   --github-token <t>    GitHub token (default: $GITHUB_TOKEN or $GH_TOKEN); optional but recommended
@@ -56,31 +57,46 @@ function parseEcosystems(value: string | undefined): Ecosystem[] | undefined {
   });
 }
 
+const MIN_NODE = [22, 18];
+
 async function main(): Promise<number> {
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      html: { type: 'string' },
-      'no-html': { type: 'boolean' },
-      json: { type: 'string' },
-      sarif: { type: 'string' },
-      top: { type: 'string' },
-      quiet: { type: 'boolean', short: 'q' },
-      deep: { type: 'boolean' },
-      bundle: { type: 'boolean' },
-      prod: { type: 'boolean' },
-      ecosystem: { type: 'string' },
-      'no-search': { type: 'boolean' },
-      config: { type: 'string' },
-      ci: { type: 'boolean' },
-      'fail-on': { type: 'string' },
-      'github-token': { type: 'string' },
-      'cache-dir': { type: 'string' },
-      'no-cache': { type: 'boolean' },
-      help: { type: 'boolean', short: 'h' },
-      version: { type: 'boolean', short: 'v' },
-    },
-  });
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (major < MIN_NODE[0] || (major === MIN_NODE[0] && minor < MIN_NODE[1])) {
+    throw new Error(`needs Node.js ${MIN_NODE.join('.')} or newer (you have ${process.versions.node}). Install a current LTS from https://nodejs.org`);
+  }
+  let parsed;
+  try {
+    parsed = parseArgs({
+      allowPositionals: true,
+      options: {
+        html: { type: 'string' },
+        'no-html': { type: 'boolean' },
+        json: { type: 'string' },
+        sarif: { type: 'string' },
+        top: { type: 'string' },
+        quiet: { type: 'boolean', short: 'q' },
+        deep: { type: 'boolean' },
+        bundle: { type: 'boolean' },
+        prod: { type: 'boolean' },
+        ecosystem: { type: 'string' },
+        'no-search': { type: 'boolean' },
+        config: { type: 'string' },
+        ci: { type: 'boolean' },
+        'fail-on': { type: 'string' },
+        'allow-incomplete': { type: 'boolean' },
+        'github-token': { type: 'string' },
+        'cache-dir': { type: 'string' },
+        'no-cache': { type: 'boolean' },
+        help: { type: 'boolean', short: 'h' },
+        version: { type: 'boolean', short: 'v' },
+      },
+    });
+  } catch (err) {
+    const e = err as Error & { code?: string };
+    const opt = e.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? /'(-{1,2}[^'\s]+)/.exec(e.message)?.[1] : undefined;
+    throw new Error(`${opt ? `unknown option ${opt}` : e.message.replace(/\.$/, '')}. Run \`dephealth --help\` to see the options.`);
+  }
+  const { values, positionals } = parsed;
   if (values.help) {
     process.stdout.write(HELP);
     return 0;
@@ -140,8 +156,14 @@ async function main(): Promise<number> {
     if (violations.length) {
       out.write(`\nCI check failed (${rules.join(', ')}):\n`);
       for (const v of violations) out.write(`  ✗ ${v.rule}: ${v.message}${v.packages.length ? ` — ${v.packages.slice(0, 8).join(', ')}${v.packages.length > 8 ? ', …' : ''}` : ''}\n`);
-      return 1;
     }
+    // "couldn't check" must never look like "all clear"
+    const blocked = report.incomplete.length > 0 && !values['allow-incomplete'];
+    if (blocked) {
+      out.write(`\nCI check could not complete:\n${report.incomplete.map((r) => `  ! ${r}`).join('\n')}\n(use --allow-incomplete to accept partial results)\n`);
+    }
+    if (violations.length) return 1;
+    if (blocked) return 2;
     out.write(`\nCI check passed (${rules.join(', ')})\n`);
   }
   return 0;
