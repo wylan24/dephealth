@@ -117,6 +117,10 @@ export interface Finding {
   /** points subtracted from the 0-100 health score */
   penalty: number;
   fix?: string;
+  /** advisory id for `vuln` findings (GHSA-…, PYSEC-…) */
+  advisory?: string;
+  /** advisory severity for `vuln` findings */
+  severity?: Severity;
 }
 
 /** Ecosystem-specific wording and version ordering that the analyzers need. */

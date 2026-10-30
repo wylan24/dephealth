@@ -1,0 +1,113 @@
+name: dephealth
+description: Dependency health report for npm and Python projects — insecure, abandoned, outdated and heavier-than-needed packages, with fixes.
+author: wylan24
+branding:
+  icon: activity
+  color: green
+
+inputs:
+  path:
+    description: Project folder to check, relative to the repository root.
+    default: .
+  fail-on:
+    description: Comma-separated CI rules, e.g. "vuln:high,deprecated:direct,score<40". Empty uses the project's config (default vuln:high,deprecated:direct).
+    default: ''
+  fail:
+    description: Fail the job when a rule is violated. Set to "false" to only report.
+    default: 'true'
+  upload-sarif:
+    description: Upload findings to GitHub code scanning (needs `security-events: write`). Results appear in the Security tab and on pull requests.
+    default: 'true'
+  sarif-category:
+    description: Code scanning category, to keep several dephealth runs (e.g. per folder) apart.
+    default: dephealth
+  upload-report:
+    description: Upload the interactive HTML report as a workflow artifact.
+    default: 'true'
+  args:
+    description: Extra command-line arguments, e.g. "--prod --deep".
+    default: ''
+  token:
+    description: GitHub token for repository health signals (archived flag, commit activity).
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: 0 passed, 1 a rule was violated, 2 dephealth itself failed.
+    value: ${{ steps.run.outputs.exit-code }}
+  sarif:
+    description: Path of the SARIF file.
+    value: ${{ steps.run.outputs.sarif }}
+  report:
+    description: Path of the HTML report.
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 22
+
+    - name: Install dephealth
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      # runtime dependencies only; Node 22.18+ runs the TypeScript sources directly
+      run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+    - name: Check dependencies
+      id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        NO_COLOR: '1'
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_ARGS: ${{ inputs.args }}
+        OUT: ${{ runner.temp }}/dephealth
+      run: |
+        mkdir -p "$OUT"
+        set +e
+        node "$GITHUB_ACTION_PATH/src/cli.ts" "$INPUT_PATH" --ci \
+          ${INPUT_FAIL_ON:+--fail-on "$INPUT_FAIL_ON"} \
+          --html "$OUT/dephealth-report.html" --sarif "$OUT/dephealth.sarif" --json "$OUT/dephealth.json" \
+          $INPUT_ARGS > "$OUT/summary.txt"
+        code=$?
+        set -e
+        cat "$OUT/summary.txt"
+        {
+          echo '### Dependency health'
+          echo '```'
+          cat "$OUT/summary.txt"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "sarif=$OUT/dephealth.sarif" >> "$GITHUB_OUTPUT"
+        echo "report=$OUT/dephealth-report.html" >> "$GITHUB_OUTPUT"
+
+    - name: Upload to code scanning
+      if: ${{ inputs.upload-sarif == 'true' && steps.run.outputs.exit-code != '2' }}
+      # pull requests from forks can't write security events; don't fail the check over that
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ steps.run.outputs.sarif }}
+        category: ${{ inputs.sarif-category }}
+
+    - name: Upload HTML report
+      if: ${{ inputs.upload-report == 'true' && always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: dephealth-report${{ inputs.sarif-category != 'dephealth' && format('-{0}', inputs.sarif-category) || '' }}
+        path: ${{ steps.run.outputs.report }}
+        if-no-files-found: ignore
+
+    - name: Result
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.exit-code }}
+        FAIL: ${{ inputs.fail }}
+      run: |
+        if [ "$CODE" = "2" ]; then echo "::error::dephealth failed to run"; exit 2; fi
+        if [ "$CODE" = "1" ] && [ "$FAIL" = "true" ]; then echo "::error::Dependency health rules were violated (see the summary)"; exit 1; fi
+        exit 0

@@ -24,3 +24,42 @@ jobs:
         run: node dist/cli.js . --ci --no-html --top 5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  action:
+    # exercises action.yml exactly as a user's workflow would
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Self-check (expected to pass, uploads SARIF)
+        id: self
+        uses: ./
+        with:
+          sarif-category: dephealth-self
+      - name: Write a fixture with a known-vulnerable dependency
+        # created at run time so the repository itself never contains a vulnerable lockfile
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixture"
+          cd "$RUNNER_TEMP/fixture"
+          echo '{"name":"fixture","version":"1.0.0","dependencies":{"lodash":"4.17.15"}}' > package.json
+          echo '{"name":"fixture","lockfileVersion":3,"packages":{"":{"name":"fixture","dependencies":{"lodash":"4.17.15"}},"node_modules/lodash":{"version":"4.17.15"}}}' > package-lock.json
+      - name: Fixture check (expected to find a high-severity vulnerability)
+        id: fixture
+        uses: ./
+        with:
+          path: ${{ runner.temp }}/fixture
+          fail: 'false'
+          upload-sarif: 'false'
+          sarif-category: fixture
+      - name: Assert outcomes
+        env:
+          SELF: ${{ steps.self.outputs.exit-code }}
+          FIXTURE: ${{ steps.fixture.outputs.exit-code }}
+          SARIF: ${{ steps.fixture.outputs.sarif }}
+        run: |
+          echo "self=$SELF fixture=$FIXTURE"
+          test "$SELF" = 0
+          test "$FIXTURE" = 1
+          node -e "const s=JSON.parse(require('fs').readFileSync(process.env.SARIF,'utf8')); const r=s.runs[0].results.filter(x=>x.properties.package==='lodash'); if(!r.length) process.exit(1); console.log(r.length+' lodash findings, e.g. '+r[0].ruleId)"

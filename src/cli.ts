@@ -7,6 +7,7 @@ import { loadConfig } from './config.ts';
 import { DiskCache } from './fetchers/http.ts';
 import { evaluate, parseRules, RULE_HELP } from './report/ci.ts';
 import { renderHtml } from './report/html.ts';
+import { renderSarif } from './report/sarif.ts';
 import { renderText } from './report/text.ts';
 import type { Ecosystem } from './types.ts';
 
@@ -20,6 +21,7 @@ Output
   --html <file>         write the interactive HTML report (default: dephealth-report.html)
   --no-html             don't write the HTML report
   --json <file>         write the JSON report ("-" for stdout)
+  --sarif <file>        write SARIF 2.1.0 for GitHub code scanning
   --top <n>             actions to list in the terminal (default 10)
   --quiet               no progress or terminal summary
 
@@ -60,6 +62,7 @@ async function main(): Promise<number> {
       html: { type: 'string' },
       'no-html': { type: 'boolean' },
       json: { type: 'string' },
+      sarif: { type: 'string' },
       top: { type: 'string' },
       quiet: { type: 'boolean', short: 'q' },
       deep: { type: 'boolean' },
@@ -117,6 +120,10 @@ async function main(): Promise<number> {
       writeFileSync(values.json, json);
       log(`JSON report: ${path.resolve(values.json)}`);
     }
+  }
+  if (values.sarif) {
+    writeFileSync(values.sarif, renderSarif(report));
+    log(`SARIF report: ${path.resolve(values.sarif)}`);
   }
   if (!values['no-html']) {
     const htmlFile = values.html ?? 'dephealth-report.html';

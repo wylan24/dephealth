@@ -32,6 +32,8 @@ export function analyzeInsecure(name: string, direct: boolean, via: string[], vu
       message: `${v.id} (${v.severity}): ${v.summary} — ${origin}; reachability: unknown`,
       penalty,
       fix,
+      advisory: v.id,
+      severity: v.severity,
     };
   });
 }
