@@ -1,16 +1,14 @@
 {
-  "name": "dephealth",
-  "version": "0.3.0",
+  "name": "@wylan24/dephealth",
+  "version": "0.3.1",
   "description": "Dependency health report for npm and Python projects: insecure, abandoned, outdated and heavier-than-needed packages, with scores, fixes and replacement suggestions.",
   "type": "module",
   "bin": {
     "dephealth": "dist/cli.js"
   },
   "files": [
-    "action.yml",
-    "data",
     "dist",
-    "src"
+    "data"
   ],
   "engines": {
     "node": ">=22.18"
@@ -20,7 +18,11 @@
     "prepare": "tsc -p tsconfig.json",
     "dev": "node src/cli.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "audit",
@@ -39,9 +41,14 @@
     "uv"
   ],
   "license": "MIT",
+  "author": "wylan24",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wylan24/dephealth.git"
+  },
+  "homepage": "https://github.com/wylan24/dephealth#readme",
+  "bugs": {
+    "url": "https://github.com/wylan24/dephealth/issues"
   },
   "dependencies": {
     "@yarnpkg/lockfile": "^1.1.0",
@@ -55,10 +62,5 @@
     "@types/node": "^22.20.5",
     "@types/semver": "^7.7.0",
     "typescript": "^7.0.2"
-  },
-  "author": "wylan24",
-  "homepage": "https://github.com/wylan24/dephealth#readme",
-  "bugs": {
-    "url": "https://github.com/wylan24/dephealth/issues"
   }
 }

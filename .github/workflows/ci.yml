@@ -20,6 +20,16 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Package smoke test (install the tarball like a user would)
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/wylan24-dephealth-*.tgz --no-audit --no-fund
+          npx dephealth --version
+          npx dephealth "$GITHUB_WORKSPACE" --no-html --ci --top 3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Dogfood on this repo
         run: node dist/cli.js . --ci --no-html --top 5
         env:

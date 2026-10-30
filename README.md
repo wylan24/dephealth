@@ -30,10 +30,17 @@ Top 10 actions
 Requires Node.js 22.18 or newer. For CI on GitHub, use the [GitHub Action](#github-action).
 
 ```bash
-npx github:wylan24/dephealth path/to/project
+npx @wylan24/dephealth path/to/project
 ```
 
-Or from a clone:
+Or install it once and run `dephealth`:
+
+```bash
+npm install -g @wylan24/dephealth
+dephealth path/to/project
+```
+
+The latest unreleased version runs straight from GitHub with `npx github:wylan24/dephealth path/to/project` (slower: it builds on install). Or from a clone:
 
 ```bash
 git clone https://github.com/wylan24/dephealth && cd dephealth
