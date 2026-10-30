@@ -8,7 +8,9 @@
   },
   "files": [
     "dist",
-    "data"
+    "data",
+    "THIRD_PARTY_NOTICES.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22.18"

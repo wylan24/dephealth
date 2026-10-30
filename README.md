@@ -277,4 +277,4 @@ Tests never touch the network: [`test/mock-fetch.ts`](test/mock-fetch.ts) stubs 
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). Dependencies and the data sources dephealth queries have their own licenses and terms, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
