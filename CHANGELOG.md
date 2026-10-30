@@ -1,6 +1,7 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
+- Grammar: "the 1 other dependency that pulls it in".
 - THIRD_PARTY_NOTICES.md (dependency licenses and data-source terms); the HTML report credits OSV.dev, deps.dev and OpenSSF Scorecard.
 - Release workflow waits for a just-published version to finish npm's processing before deciding to publish.
 

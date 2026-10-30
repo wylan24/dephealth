@@ -106,6 +106,7 @@ test('insecure: one upgrade target that clears every advisory, transitive guidan
   const transitive = analyzeInsecure('x', false, ['parent'], vulns, NPM);
   assert.match(transitive[0].fix!, /Upgrade parent .* x >= 1\.4\.0.*"overrides" entry/);
   assert.match(analyzeInsecure('x', false, ['a', 'b', 'c'], vulns, NPM)[0].fix!, /^Upgrade a \(or the 2 other dependencies that pull it in\)/);
+  assert.match(analyzeInsecure('x', false, ['a', 'b'], vulns, NPM)[0].fix!, /^Upgrade a \(or the 1 other dependency that pulls it in\)/);
   assert.match(analyzeInsecure('x', false, ['parent'], vulns, PNPM)[0].fix!, /pnpm\.overrides/);
   assert.match(analyzeInsecure('x', false, ['parent'], vulns, UV)[0].fix!, /constraint-dependencies/);
   assert.match(transitive[0].message, /pulled in by parent; reachability: unknown/);

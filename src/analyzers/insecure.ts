@@ -22,7 +22,8 @@ export function analyzeInsecure(name: string, direct: boolean, via: string[], vu
     else if (!v.fixedIn) fix = `No fixed version published; replace ${name} or confirm the vulnerable code path is not used`;
     else if (direct) fix = `Upgrade to ${hints.pin(name, target!)} or later${all}`;
     else {
-      const parents = via.length > 1 ? `${via[0]} (or the ${via.length - 1} other dependenc${via.length > 2 ? 'ies' : 'y'} that pull it in)` : (via[0] ?? 'the parent package');
+      const others = via.length - 1;
+      const parents = others > 0 ? `${via[0]} (or the ${others} other ${others > 1 ? 'dependencies that pull' : 'dependency that pulls'} it in)` : (via[0] ?? 'the parent package');
       fix = `Upgrade ${parents} to a release that pulls ${name} >= ${target}, or ${hints.override(name, target!)}${all}`;
     }
     return {
