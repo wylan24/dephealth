@@ -27,7 +27,7 @@ export function buildActions(packages: PackageReport[]): Action[] {
       const replacement = p.replacements[0];
       const fix =
         f.fix ??
-        (replacement ? `Replace with ${replacement.name} (${replacement.effort}${replacement.source === 'search' ? ', candidate only' : ''})` : 'Review whether it is still needed');
+        (replacement ? `Replace with ${replacement.name} (${replacement.effort}${replacement.source === 'search' ? ', candidate only' : ''})` : 'No maintained replacement is known: check whether you still need it, or plan to fork or vendor it');
       const drift = category === 'outdated' ? Math.min(10, Math.round((p.libyear ?? 0) * 2)) : 0;
       const priority = LEVEL_WEIGHT[f.level] + (CODE_BONUS[f.code] ?? 0) + (p.direct ? 10 : 0) - (p.dev ? 15 : 0) + drift;
       actions.push({ ecosystem: p.ecosystem, priority, package: `${p.name}@${p.version}`, category, title: fix, detail: f.message });

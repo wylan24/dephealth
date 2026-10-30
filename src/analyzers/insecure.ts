@@ -21,7 +21,10 @@ export function analyzeInsecure(name: string, direct: boolean, via: string[], vu
     if (v.id.startsWith('MAL-')) fix = `Remove ${name} immediately and rotate any secrets on machines that installed it`;
     else if (!v.fixedIn) fix = `No fixed version published; replace ${name} or confirm the vulnerable code path is not used`;
     else if (direct) fix = `Upgrade to ${hints.pin(name, target!)} or later${all}`;
-    else fix = `Upgrade ${via[0] ?? 'the parent package'} to a release that pulls ${name} >= ${target}, or ${hints.override(name, target!)}${all}`;
+    else {
+      const parents = via.length > 1 ? `${via[0]} (or the ${via.length - 1} other dependenc${via.length > 2 ? 'ies' : 'y'} that pull it in)` : (via[0] ?? 'the parent package');
+      fix = `Upgrade ${parents} to a release that pulls ${name} >= ${target}, or ${hints.override(name, target!)}${all}`;
+    }
     return {
       category: 'insecure' as const,
       level: LEVEL[v.severity],

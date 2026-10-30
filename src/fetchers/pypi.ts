@@ -75,19 +75,21 @@ export class PypiFetcher {
     );
   }
 
-  private downloads(name: string): Promise<number | undefined> {
-    return this.cache
-      .wrap(`pypi:downloads:${name}`, () =>
-        this.dlLimit(async () => {
-          try {
-            const { data } = await fetchJson<{ data?: { last_week?: number } }>(`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`, {}, 1);
-            return data?.data?.last_week ?? null;
-          } catch {
-            return null; // non-essential
-          }
-        }),
-      )
-      .then((d) => d ?? undefined);
+  /** Weekly downloads from pypistats.org; failures aren't cached (see NpmFetcher.downloads). */
+  private async downloads(name: string): Promise<number | undefined> {
+    const key = `pypi:downloads:${name}`;
+    const hit = this.cache.get<number | null>(key);
+    if (typeof hit === 'number') return hit;
+    return this.dlLimit(async () => {
+      try {
+        const { data } = await fetchJson<{ data?: { last_week?: number } }>(`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`, {}, 3);
+        const n = data?.data?.last_week;
+        if (n !== undefined) this.cache.set(key, n);
+        return n;
+      } catch {
+        return undefined; // non-essential
+      }
+    });
   }
 
   async info(name: string, version: string, withDownloads: boolean): Promise<RegistryInfo> {
@@ -103,7 +105,7 @@ export class PypiFetcher {
       time: p.time,
       versions: Object.keys(p.time),
       deprecated: yank !== undefined ? `version ${version} was yanked from PyPI${yank ? `: ${yank}` : ''}` : undefined,
-      latestDeprecated: p.inactive ? `marked "${INACTIVE}" on PyPI` : undefined,
+      latestDeprecated: p.inactive ? INACTIVE : undefined,
       maintainers: undefined, // not exposed by the PyPI JSON API
       repository: parseRepository(p.repository),
       weeklyDownloads: withDownloads ? await this.downloads(name) : undefined,

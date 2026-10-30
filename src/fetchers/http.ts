@@ -98,14 +98,14 @@ export class HttpError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** fetch() + JSON with retries on 429/5xx and network errors. Returns null on 404. */
-export async function fetchJson<T>(url: string, init: RequestInit = {}, retries = 3): Promise<{ data: T | null; headers: Headers }> {
+export async function fetchJson<T>(url: string, init: RequestInit = {}, retries = 3, timeoutMs = 30_000): Promise<{ data: T | null; headers: Headers }> {
   for (let attempt = 0; ; attempt++) {
     let res: Response;
     try {
       res = await fetch(url, {
         ...init,
         headers: { 'user-agent': 'dephealth (+https://github.com/wylan24/dephealth)', accept: 'application/json', ...init.headers },
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       if (attempt >= retries) throw err;

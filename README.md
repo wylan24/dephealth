@@ -73,7 +73,11 @@ v1 doesn't do reachability analysis (whether your code actually calls the vulner
 
 Signals: author deprecation (npm `deprecated`; on PyPI the `Development Status :: 7 - Inactive` classifier), archived repository, time since last publish, commits in the last 12 months, number of npm maintainers (PyPI doesn't publish this), an open-issue backlog that's large *for the project's size*, Scorecard's "Maintained" check, and whether it links a source repo at all.
 
-**It never flags on a single signal.** Deprecation and an archived repo are the only hard signals. Otherwise a package needs to fail three signals to be called *abandoned* (two makes it *at risk*). A "finished" utility with more than 1M weekly downloads and no known vulnerabilities needs four, because a tiny package nobody has needed to touch for years is stable, not abandoned.
+**It never flags on a single signal.** The only hard signals are deprecation and a repository archived with no recent activity. A repo archived right after a year of commits or releases usually means the package moved, so it's reported as *at risk* instead.
+
+Otherwise a package needs to fail three signals to be called *abandoned* (two makes it *at risk*). Activity decides: a single maintainer, an issue backlog or a missing repo link only count once releases or commits have stopped, so an actively developed one-person project is never flagged for being one-person. A "finished" utility with more than 1M weekly downloads and no known vulnerabilities needs five (four for *at risk*): a tiny package nobody has needed to touch for years is stable, not abandoned.
+
+Type stub packages (`@types/*` on npm, `types-*` on PyPI) live in shared monorepos (DefinitelyTyped, typeshed), so only their deprecation is checked.
 
 ### Outdated
 

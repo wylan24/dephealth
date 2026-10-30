@@ -32,6 +32,7 @@ export function parseRepository(repo: string | undefined): RegistryInfo['reposit
 }
 
 const encodeName = (name: string) => name.replace('/', '%2f');
+const DOWNLOADS = 'https://api.npmjs.org/downloads/point/last-week';
 
 export class NpmFetcher {
   private limit = limiter(16);
@@ -46,7 +47,8 @@ export class NpmFetcher {
   private packument(name: string): Promise<TrimmedPackument | null> {
     return this.cache.wrap(`npm:packument:${name}`, () =>
       this.limit(async () => {
-        const { data } = await fetchJson<Packument>(`${this.registry}/${encodeName(name)}`);
+        // packuments of packages with thousands of versions (playwright, @types/node) run to tens of MB
+        const { data } = await fetchJson<Packument>(`${this.registry}/${encodeName(name)}`, {}, 3, 120_000);
         if (!data) return null;
         const versions: TrimmedPackument['versions'] = {};
         for (const [v, meta] of Object.entries(data.versions ?? {})) {
@@ -66,17 +68,57 @@ export class NpmFetcher {
     );
   }
 
+  /**
+   * Weekly downloads. The downloads API rate-limits hard, so unscoped names are batched through its
+   * bulk endpoint (up to 128 per request); scoped names have no bulk form. Failures are not cached,
+   * because a missing count disables the "finished utility" exemption in the abandonment check.
+   */
   private downloads(name: string): Promise<number | undefined> {
-    return this.cache.wrap(`npm:downloads:${name}`, () =>
-      this.dlLimit(async () => {
+    const key = `npm:downloads:${name}`;
+    const hit = this.cache.get<number | null>(key);
+    if (typeof hit === 'number') return Promise.resolve(hit); // older versions cached failures as null
+    const store = (n: number | undefined) => {
+      if (n !== undefined) this.cache.set(key, n);
+      return n;
+    };
+    if (name.startsWith('@')) {
+      return this.dlLimit(async () => {
         try {
-          const { data } = await fetchJson<{ downloads?: number }>(`https://api.npmjs.org/downloads/point/last-week/${name}`);
-          return data?.downloads ?? null;
+          const { data } = await fetchJson<{ downloads?: number }>(`${DOWNLOADS}/${name}`, {}, 5);
+          return store(data?.downloads);
         } catch {
-          return null; // downloads API is flaky and non-essential
+          return undefined;
         }
-      }),
-    ).then((d) => d ?? undefined);
+      });
+    }
+    return new Promise((resolve) => {
+      this.dlQueue.set(name, [...(this.dlQueue.get(name) ?? []), resolve]);
+      this.dlTimer ??= setTimeout(() => this.flushDownloads(), 25);
+    }).then((n) => store(n as number | undefined));
+  }
+
+  private dlQueue = new Map<string, ((n: number | undefined) => void)[]>();
+  private dlTimer: ReturnType<typeof setTimeout> | undefined;
+
+  private flushDownloads() {
+    const queue = this.dlQueue;
+    this.dlQueue = new Map();
+    this.dlTimer = undefined;
+    const names = [...queue.keys()];
+    for (let i = 0; i < names.length; i += 128) {
+      const chunk = names.slice(i, i + 128);
+      void this.dlLimit(async () => {
+        let data: Record<string, { downloads?: number } | null> | null = null;
+        try {
+          // a single name returns `{downloads}` rather than a map
+          const res = await fetchJson<Record<string, { downloads?: number } | null> & { downloads?: number }>(`${DOWNLOADS}/${chunk.join(',')}`, {}, 5);
+          data = chunk.length === 1 ? { [chunk[0]]: res.data } : res.data;
+        } catch {
+          // leave counts unknown
+        }
+        for (const n of chunk) for (const resolve of queue.get(n)!) resolve(data?.[n]?.downloads);
+      });
+    }
   }
 
   async info(name: string, version: string, withDownloads: boolean): Promise<RegistryInfo> {

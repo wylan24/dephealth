@@ -1,6 +1,6 @@
 {
   "name": "dephealth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Dependency health report for npm and Python projects: insecure, abandoned, outdated and heavier-than-needed packages, with scores, fixes and replacement suggestions.",
   "type": "module",
   "bin": {

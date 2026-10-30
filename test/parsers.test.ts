@@ -131,6 +131,63 @@ snapshots:
   assert.equal(g.nodes.get('@types/node@20.1.0')!.dev, true);
 });
 
+test('pnpm 10+ lockfile with a leading package-manager document', () => {
+  const root = project({
+    'package.json': { name: 'p10', dependencies: { ms: '^2.1.0' }, peerDependencies: { foobar: '*' } },
+    'pnpm-lock.yaml': `---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 10.0.0
+        version: 10.0.0
+
+packages:
+
+  pnpm@10.0.0:
+    resolution: {integrity: sha512-p}
+
+snapshots:
+
+  pnpm@10.0.0: {}
+
+---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      ms:
+        specifier: ^2.1.0
+        version: 2.1.3
+
+packages:
+
+  ms@2.1.3:
+    resolution: {integrity: sha512-m}
+  debug@4.3.4:
+    resolution: {integrity: sha512-d}
+
+snapshots:
+
+  ms@2.1.3: {}
+  debug@4.3.4:
+    dependencies:
+      ms: 2.1.3
+`,
+  });
+  const warnings: string[] = [];
+  const g = loadProject(root, warnings);
+  assert.deepEqual(directIds(root), { ms: 'ms@2.1.3', foobar: undefined });
+  assert.ok(!g.nodes.has('pnpm@10.0.0'));
+  assert.deepEqual(warnings, []); // an uninstalled peer is not worth a warning
+});
+
 test('pnpm v6 lockfile', () => {
   const root = project({
     'package.json': { name: 'p6', dependencies: { debug: '^4.0.0' } },

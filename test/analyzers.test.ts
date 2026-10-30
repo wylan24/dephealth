@@ -51,25 +51,48 @@ test('abandoned: never flags on a single signal', () => {
   assert.deepEqual(r.failed, ['no release in 8.8 years']);
 });
 
-test('abandoned: three failing signals => abandoned; "finished" popular package needs four', () => {
+test('abandoned: three failing signals => abandoned; a "finished" popular package needs five', () => {
   const stale = reg({ time: { '1.0.0': '2018-01-01T00:00:00Z' }, maintainers: 1 });
   const repo = { commitsLastYear: 0, source: [] };
   assert.equal(analyzeAbandoned(stale, repo, 0, 2, NOW).status, 'abandoned');
+  // picocolors / escape-html shape: quiet, solo, but used everywhere with no known bugs
   const popular = { ...stale, weeklyDownloads: 5_000_000 };
-  assert.equal(analyzeAbandoned(popular, repo, 0, 2, NOW).status, 'at-risk');
+  assert.equal(analyzeAbandoned(popular, repo, 0, 2, NOW).status, 'healthy');
   // ...unless it has known vulnerabilities
   assert.equal(analyzeAbandoned(popular, repo, 1, 2, NOW).status, 'abandoned');
 });
 
-test('abandoned: deprecation and archived repos are hard signals', () => {
-  assert.equal(analyzeAbandoned(reg({ latestDeprecated: 'use x instead' }), undefined, 0, 2, NOW).findings[0].code, 'deprecated');
-  assert.equal(analyzeAbandoned(reg(), { archived: true, source: [] }, 0, 2, NOW).findings[0].code, 'archived');
+test('abandoned: an actively developed solo project is not at risk (esbuild shape)', () => {
+  const r = analyzeAbandoned(reg({ maintainers: 1 }), { commitsLastYear: 100, openIssues: 640, stars: 39_000, source: [] }, 0, 2, NOW);
+  assert.equal(r.status, 'healthy');
+  assert.deepEqual(r.failed, []);
+  assert.ok(r.passed.some((x) => x.includes('single registry maintainer (not counted: still active)')));
 });
 
-test('abandoned: open-issue backlog is judged relative to project size', () => {
-  const big = analyzeAbandoned(reg(), { openIssues: 1500, stars: 200_000, commitsLastYear: 100, source: [] }, 0, 2, NOW);
+test('abandoned: @types packages are judged by deprecation only', () => {
+  const types = reg({ name: '@types/jsesc', time: { '1.0.0': '2018-01-01T00:00:00Z' }, maintainers: 1 });
+  assert.equal(analyzeAbandoned(types, { commitsLastYear: 0, openIssues: 685, stars: 50_000, source: [] }, 0, 2, NOW).status, 'healthy');
+  assert.equal(analyzeAbandoned({ ...types, latestDeprecated: 'stub types' }, undefined, 0, 2, NOW).findings[0].code, 'deprecated');
+  assert.equal(analyzeAbandoned({ ...types, name: 'types-boto' }, { commitsLastYear: 0, openIssues: 410, stars: 4_000, source: [] }, 0, 2, NOW).status, 'healthy');
+});
+
+test('abandoned: deprecation and long-dead archived repos are hard signals; a recent archive is not', () => {
+  assert.equal(analyzeAbandoned(reg({ latestDeprecated: 'use x instead' }), undefined, 0, 2, NOW).findings[0].code, 'deprecated');
+  const old = reg({ latest: '1.0.0', time: { '1.0.0': '2020-01-01T00:00:00Z' }, versions: ['1.0.0'] });
+  assert.equal(analyzeAbandoned(old, { archived: true, commitsLastYear: 0, source: [] }, 0, 2, NOW).findings[0].code, 'archived');
+  // webpack-contrib loaders: archived this year right after releases and commits
+  const r = analyzeAbandoned(reg(), { archived: true, commitsLastYear: 15, source: [] }, 0, 2, NOW);
+  assert.equal(r.status, 'at-risk');
+  assert.equal(r.findings[0].code, 'archived-recent');
+});
+
+test('abandoned: a backlog counts only once activity has stopped, and relative to project size', () => {
+  const active = analyzeAbandoned(reg(), { openIssues: 80, stars: 300, commitsLastYear: 100, source: [] }, 0, 2, NOW);
+  assert.ok(!active.failed.some((f) => f.includes('open issues')));
+  const stale = reg({ time: { '1.0.0': '2018-01-01T00:00:00Z' } });
+  const big = analyzeAbandoned(stale, { openIssues: 1500, stars: 200_000, commitsLastYear: 0, source: [] }, 0, 2, NOW);
   assert.ok(!big.failed.some((f) => f.includes('open issues')));
-  const small = analyzeAbandoned(reg(), { openIssues: 80, stars: 300, commitsLastYear: 100, source: [] }, 0, 2, NOW);
+  const small = analyzeAbandoned(stale, { openIssues: 80, stars: 300, commitsLastYear: 0, source: [] }, 0, 2, NOW);
   assert.ok(small.failed.some((f) => f.includes('open issues')));
 });
 
@@ -82,6 +105,7 @@ test('insecure: one upgrade target that clears every advisory, transitive guidan
   assert.equal(direct[0].fix, 'Upgrade to x@1.4.0 or later (fixes both advisories)');
   const transitive = analyzeInsecure('x', false, ['parent'], vulns, NPM);
   assert.match(transitive[0].fix!, /Upgrade parent .* x >= 1\.4\.0.*"overrides" entry/);
+  assert.match(analyzeInsecure('x', false, ['a', 'b', 'c'], vulns, NPM)[0].fix!, /^Upgrade a \(or the 2 other dependencies that pull it in\)/);
   assert.match(analyzeInsecure('x', false, ['parent'], vulns, PNPM)[0].fix!, /pnpm\.overrides/);
   assert.match(analyzeInsecure('x', false, ['parent'], vulns, UV)[0].fix!, /constraint-dependencies/);
   assert.match(transitive[0].message, /pulled in by parent; reachability: unknown/);

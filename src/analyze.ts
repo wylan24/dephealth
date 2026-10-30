@@ -205,7 +205,7 @@ async function analyzeEcosystem(eco: EcosystemAdapter, graph: DependencyGraph, s
 
   // ------------------------------------------------------------ replacements
   const needsAdvice = (p: PackageReport) =>
-    p.findings.some((f) => ['deprecated', 'archived', 'abandoned', 'at-risk', 'legacy', 'native-now', 'micro-utility'].includes(f.code) || (f.code === 'vuln' && f.fix?.startsWith('No fixed')));
+    p.findings.some((f) => ['deprecated', 'archived', 'archived-recent', 'abandoned', 'at-risk', 'legacy', 'native-now', 'micro-utility'].includes(f.code) || (f.code === 'vuln' && f.fix?.startsWith('No fixed')));
   const searchLimit = limiter(4);
   await Promise.all(
     packages.filter(needsAdvice).map(async (p) => {

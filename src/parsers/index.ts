@@ -8,6 +8,16 @@ import { parsePnpmLock } from './pnpm.ts';
 import { parseYarnBerry, parseYarnClassic } from './yarn.ts';
 import YAML from 'yaml';
 
+/**
+ * pnpm 10+ can prepend a second YAML document that only locks pnpm itself (`packageManagerDependencies`).
+ * The real lockfile is the document with the most packages.
+ */
+export function readPnpmLock(text: string): Parameters<typeof parsePnpmLock>[0] {
+  const docs = YAML.parseAllDocuments(text).map((d) => d.toJS() as Parameters<typeof parsePnpmLock>[0] | null).filter((d) => !!d);
+  const size = (d: (typeof docs)[number]) => Object.keys(d.packages ?? {}).length + Object.keys(d.snapshots ?? {}).length;
+  return docs.reduce((best, d) => (size(d) > size(best) ? d : best), docs[0]);
+}
+
 /** Read every manifest in the project (including workspaces) and its lockfile into one graph. */
 export function loadProject(rootDir: string, warnings: string[] = []): DependencyGraph {
   const root = path.resolve(rootDir);
@@ -30,7 +40,7 @@ export function loadProject(rootDir: string, warnings: string[] = []): Dependenc
     parseNpmLock(readJson(at(file)), workspaces, b);
     lockfile = { kind: 'npm', path: file };
   } else if (existsSync(at('pnpm-lock.yaml'))) {
-    parsePnpmLock(YAML.parse(readFileSync(at('pnpm-lock.yaml'), 'utf8')), workspaces, b);
+    parsePnpmLock(readPnpmLock(readFileSync(at('pnpm-lock.yaml'), 'utf8')), workspaces, b);
     lockfile = { kind: 'pnpm', path: 'pnpm-lock.yaml' };
   } else if (existsSync(at('yarn.lock'))) {
     const text = readFileSync(at('yarn.lock'), 'utf8');
@@ -55,7 +65,8 @@ export function loadProject(rootDir: string, warnings: string[] = []): Dependenc
 
   for (const ws of workspaces) {
     for (const d of ws.direct) {
-      if (!d.id && !isLocalRange(d.range) && lockfile.kind !== 'none') {
+      // optional and peer dependencies are often deliberately left uninstalled
+      if (!d.id && !isLocalRange(d.range) && lockfile.kind !== 'none' && d.type !== 'optional' && d.type !== 'peer') {
         warnings.push(`${ws.name}: ${d.name}@${d.range} is not in the lockfile (run your package manager's install).`);
       }
     }
